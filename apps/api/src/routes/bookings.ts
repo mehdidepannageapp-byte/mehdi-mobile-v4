@@ -94,9 +94,33 @@ bookingsRouter.post('/:id/payment-confirmed', asyncHandler(async (req, res) => {
   res.json(updated);
 }));
 
+const paginationSchema = z.object({
+  page: z.coerce.number().int().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+});
+
 bookingsRouter.get('/', asyncHandler(async (req, res) => {
   const where = req.auth!.role === UserRole.DRIVER ? { driverId: req.auth!.userId } : { clientId: req.auth!.userId };
-  res.json(await prisma.booking.findMany({ where, include: { vehicle: true, client: true, driver: true, invoice: true }, orderBy: { createdAt: 'desc' } }));
+  const { page, limit } = paginationSchema.parse(req.query);
+  const include = { vehicle: true, client: true, driver: true, invoice: true } as const;
+  const orderBy = { createdAt: 'desc' } as const;
+
+  // Sans paramètres, on garde le comportement historique (liste complète) pour ne pas casser l'app mobile.
+  if (!page && !limit) {
+    return res.json(await prisma.booking.findMany({ where, include, orderBy }));
+  }
+
+  const currentPage = page ?? 1;
+  const pageSize = limit ?? 20;
+  const [bookings, total] = await Promise.all([
+    prisma.booking.findMany({ where, include, orderBy, skip: (currentPage - 1) * pageSize, take: pageSize }),
+    prisma.booking.count({ where }),
+  ]);
+  res.setHeader('X-Total-Count', String(total));
+  res.setHeader('X-Page', String(currentPage));
+  res.setHeader('X-Limit', String(pageSize));
+  res.setHeader('X-Has-More', String(currentPage * pageSize < total));
+  res.json(bookings);
 }));
 
 bookingsRouter.get('/:id', asyncHandler(async (req, res) => {

@@ -20,6 +20,11 @@ const schema = z.object({
   COMPANY_ADDRESS: z.string().default('Île-de-France'),
   COMPANY_SIRET: z.string().default('À compléter'),
   DRIVER_PHONE: z.string().default('+33600000000'),
+  CORS_ORIGINS: z.string().optional(),
 });
 
 export const env = schema.parse(process.env);
+
+export const corsOrigins = env.CORS_ORIGINS
+  ? env.CORS_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean)
+  : [];

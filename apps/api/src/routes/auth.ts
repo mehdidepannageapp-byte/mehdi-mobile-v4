@@ -5,12 +5,13 @@ import { z } from 'zod';
 import { env } from '../config/env.js';
 import { prisma } from '../config/prisma.js';
 import { requireAuth, signToken } from '../middleware/auth.js';
+import { requestOtpLimiter, verifyOtpLimiter } from '../middleware/rate-limit.js';
 import { asyncHandler } from '../utils/async-handler.js';
 import { sendSms } from '../services/notification.js';
 
 export const authRouter = Router();
 
-authRouter.post('/request-otp', asyncHandler(async (req, res) => {
+authRouter.post('/request-otp', requestOtpLimiter, asyncHandler(async (req, res) => {
   const { phone } = z.object({ phone: z.string().regex(/^\+[1-9]\d{7,14}$/) }).parse(req.body);
   const code = env.NODE_ENV === 'production' ? String(Math.floor(100000 + Math.random() * 900000)) : '000000';
   await prisma.otpCode.create({ data: { phone, codeHash: await bcrypt.hash(code, 10), expiresAt: new Date(Date.now() + 10 * 60_000) } });
@@ -18,7 +19,7 @@ authRouter.post('/request-otp', asyncHandler(async (req, res) => {
   res.status(204).end();
 }));
 
-authRouter.post('/verify-otp', asyncHandler(async (req, res) => {
+authRouter.post('/verify-otp', verifyOtpLimiter, asyncHandler(async (req, res) => {
   const { phone, code, firstName } = z.object({ phone: z.string(), code: z.string().length(6), firstName: z.string().trim().min(1).optional() }).parse(req.body);
   const otp = await prisma.otpCode.findFirst({ where: { phone, consumedAt: null, expiresAt: { gt: new Date() } }, orderBy: { createdAt: 'desc' } });
   if (!otp || !(await bcrypt.compare(code, otp.codeHash))) return res.status(401).json({ error: 'Code incorrect ou expiré' });

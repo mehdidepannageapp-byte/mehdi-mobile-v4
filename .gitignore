@@ -19,6 +19,15 @@ mehdi mobile v4.zip
 
 # Fichiers confidentiels
 .env.*
+!.env.example
 *.pem
 *.p12
 *.key
+
+# Éditeurs / IDE
+.vscode
+.idea
+
+# Sorties de build et caches divers
+*.tsbuildinfo
+.turbo
