@@ -1,0 +1,19 @@
+{
+  "name": "mehdi-depannage",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": ["apps/*"],
+  "scripts": {
+    "dev:api": "npm --workspace @mehdi/api run dev",
+    "dev:mobile": "npm --workspace @mehdi/mobile run start",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "test:route": "node --experimental-strip-types --test tests/route.test.mjs",
+    "db:generate": "npm --workspace @mehdi/api run prisma:generate",
+    "db:migrate": "npm --workspace @mehdi/api run prisma:migrate",
+    "db:seed": "npm --workspace @mehdi/api run prisma:seed"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

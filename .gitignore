@@ -1,0 +1,24 @@
+node_modules
+.expo
+.env
+dist
+coverage
+*.log
+apps/mobile/ios
+apps/mobile/android
+apps/api/uploads/*
+!apps/api/uploads/.gitkeep
+
+# Fichiers macOS
+.DS_Store
+
+# Anciennes versions et archives
+mehdi mobile v3/
+mehdi mobile v3.zip
+mehdi mobile v4.zip
+
+# Fichiers confidentiels
+.env.*
+*.pem
+*.p12
+*.key

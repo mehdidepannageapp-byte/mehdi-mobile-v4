@@ -1,0 +1,193 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  CLIENT
+  DRIVER
+}
+
+enum BookingStatus {
+  DRAFT
+  PAYMENT_PENDING
+  SEARCHING
+  SCHEDULED
+  ASSIGNED
+  DRIVER_EN_ROUTE
+  DRIVER_ARRIVED
+  PICKED_UP
+  IN_TRANSIT
+  DELIVERED
+  COMPLETED
+  CANCELLED
+  PAYMENT_FAILED
+}
+
+enum IssueType {
+  ENGINE
+  FLAT_TIRE
+  BATTERY
+  ACCIDENT
+  CHAIN
+  OTHER
+}
+
+enum PhotoKind {
+  CLIENT
+  PICKUP
+  DELIVERY
+  INCIDENT
+}
+
+enum PaymentMethod {
+  CARD
+  CASH
+}
+
+enum PaymentStatus {
+  PENDING
+  AUTHORIZED
+  PAID
+  FAILED
+}
+
+model User {
+  id            String      @id @default(cuid())
+  phone         String      @unique
+  firstName     String?
+  email         String?
+  role          UserRole    @default(CLIENT)
+  isAvailable   Boolean     @default(false)
+  pushToken     String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  vehicles      Vehicle[]
+  clientJobs    Booking[]   @relation("ClientJobs")
+  driverJobs    Booking[]   @relation("DriverJobs")
+  sentMessages  Message[]
+  locations     LiveLocation[]
+  reviewsGiven  Review[]    @relation("ReviewsGiven")
+  reviewsReceived Review[]  @relation("ReviewsReceived")
+}
+
+model OtpCode {
+  id        String   @id @default(cuid())
+  phone     String
+  codeHash  String
+  expiresAt DateTime
+  consumedAt DateTime?
+  createdAt DateTime @default(now())
+  @@index([phone, createdAt])
+}
+
+model Vehicle {
+  id        String   @id @default(cuid())
+  ownerId   String
+  brand     String
+  model     String
+  plate     String?
+  year      Int?
+  createdAt DateTime @default(now())
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  bookings  Booking[]
+}
+
+model Booking {
+  id                    String        @id @default(cuid())
+  reference             String        @unique
+  clientId              String
+  driverId              String?
+  vehicleId             String?
+  issueType              IssueType
+  issueDescription      String?
+  status                 BookingStatus @default(DRAFT)
+  pickupAddress          String
+  pickupLatitude         Float
+  pickupLongitude        Float
+  destinationAddress     String
+  destinationLatitude    Float
+  destinationLongitude   Float
+  distanceKm             Float
+  scheduledFor           DateTime?
+  retryAfter             DateTime?
+  estimatedPriceCents    Int
+  finalPriceCents        Int?
+  currency               String        @default("eur")
+  paymentMethod          PaymentMethod @default(CARD)
+  paymentStatus          PaymentStatus @default(PENDING)
+  stripePaymentIntentId  String?
+  cancellationReason     String?
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
+  completedAt            DateTime?
+  client                 User          @relation("ClientJobs", fields: [clientId], references: [id])
+  driver                 User?         @relation("DriverJobs", fields: [driverId], references: [id])
+  vehicle                Vehicle?      @relation(fields: [vehicleId], references: [id])
+  messages               Message[]
+  photos                 Photo[]
+  locations              LiveLocation[]
+  invoice                Invoice?
+  review                 Review?
+  @@index([status, scheduledFor])
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  bookingId String
+  senderId  String
+  body      String
+  readAt    DateTime?
+  createdAt DateTime @default(now())
+  booking   Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  sender    User     @relation(fields: [senderId], references: [id])
+}
+
+model Photo {
+  id        String    @id @default(cuid())
+  bookingId String
+  kind      PhotoKind
+  url       String
+  createdAt DateTime  @default(now())
+  booking   Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+}
+
+model LiveLocation {
+  id        String   @id @default(cuid())
+  bookingId String
+  userId    String
+  latitude  Float
+  longitude Float
+  heading   Float?
+  createdAt DateTime @default(now())
+  booking   Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id])
+  @@index([bookingId, createdAt])
+}
+
+model Invoice {
+  id          String   @id @default(cuid())
+  bookingId   String   @unique
+  number      String   @unique
+  amountCents Int
+  pdfPath     String?
+  createdAt   DateTime @default(now())
+  booking     Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+}
+
+model Review {
+  id          String   @id @default(cuid())
+  bookingId   String   @unique
+  authorId    String
+  recipientId String
+  rating      Int
+  comment     String?
+  createdAt   DateTime @default(now())
+  booking     Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  author      User     @relation("ReviewsGiven", fields: [authorId], references: [id])
+  recipient   User     @relation("ReviewsReceived", fields: [recipientId], references: [id])
+}

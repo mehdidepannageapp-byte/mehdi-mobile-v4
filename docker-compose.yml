@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: mehdi
+      POSTGRES_PASSWORD: mehdi_local
+      POSTGRES_DB: mehdi_depannage
+    ports:
+      - "5434:5432"
+    volumes:
+      - mehdi_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mehdi -d mehdi_depannage"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  mehdi_postgres:
