@@ -13,6 +13,19 @@ const ACTIVE_MISSION_STATUSES: BookingStatus[] = [
 ];
 const STALE_MISSION_MINUTES = 5;
 
+/** Le dépanneur a-t-il déclaré une indisponibilité (mission hors app) au moment visé ? */
+async function hasUnavailabilityConflict(driverId: string, at: Date): Promise<boolean> {
+  const oneTime = await prisma.unavailability.count({
+    where: { driverId, type: 'ONE_TIME', startAt: { lte: at }, endAt: { gte: at } },
+  });
+  if (oneTime > 0) return true;
+  const hhmm = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
+  const recurring = await prisma.unavailability.count({
+    where: { driverId, type: 'RECURRING', weekday: at.getDay(), startTime: { lte: hhmm }, endTime: { gte: hhmm } },
+  });
+  return recurring > 0;
+}
+
 export async function assignSingleDriver(bookingId: string) {
   const booking = await prisma.booking.findUnique({ where: { id: bookingId }, include: { client: true } });
   if (!booking || (booking.status !== BookingStatus.SEARCHING && booking.status !== BookingStatus.SCHEDULED)) return null;
@@ -23,7 +36,8 @@ export async function assignSingleDriver(bookingId: string) {
       driverJobs: { none: { status: { notIn: [BookingStatus.COMPLETED, BookingStatus.CANCELLED] } } },
     },
   });
-  if (!driver) {
+  const targetTime = booking.scheduledFor ?? new Date();
+  if (!driver || (await hasUnavailabilityConflict(driver.id, targetTime))) {
     await prisma.booking.update({
       where: { id: booking.id },
       data: { status: BookingStatus.SEARCHING, retryAfter: new Date(Date.now() + pricing.retryMinutes * 60_000) },

@@ -81,7 +81,7 @@ export function ScheduleScreen({ navigation }: Props<'Schedule'>) {
   </AppScreen>;
 }
 
-function Chip({ text, active, onPress }: { text: string; active: boolean; onPress: () => void }) { return <Pressable onPress={onPress} style={[styles.chip, active && styles.chipActive]}><Text style={[styles.chipText, active && { color: colors.bg }]}>{text}</Text></Pressable>; }
+export function Chip({ text, active, onPress }: { text: string; active: boolean; onPress: () => void }) { return <Pressable onPress={onPress} style={[styles.chip, active && styles.chipActive]}><Text style={[styles.chipText, active && { color: colors.bg }]}>{text}</Text></Pressable>; }
 
 export function QuoteScreen({ navigation }: Props<'Quote'>) {
   const { draft, setActive } = useBooking();

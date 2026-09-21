@@ -57,6 +57,11 @@ enum PaymentStatus {
   FAILED
 }
 
+enum UnavailabilityType {
+  ONE_TIME
+  RECURRING
+}
+
 model User {
   id            String      @id @default(cuid())
   phone         String      @unique
@@ -74,6 +79,7 @@ model User {
   locations     LiveLocation[]
   reviewsGiven  Review[]    @relation("ReviewsGiven")
   reviewsReceived Review[]  @relation("ReviewsReceived")
+  unavailabilities Unavailability[]
 }
 
 model OtpCode {
@@ -192,4 +198,21 @@ model Review {
   booking     Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   author      User     @relation("ReviewsGiven", fields: [authorId], references: [id])
   recipient   User     @relation("ReviewsReceived", fields: [recipientId], references: [id])
+}
+
+// Créneaux où le dépanneur est pris par une mission hors application. Ponctuel : plage
+// startAt/endAt précise. Récurrent : jour de la semaine (0=dimanche..6=samedi, comme
+// Date.getDay()) + plage horaire "HH:mm", sans date de fin, actif jusqu'à suppression.
+model Unavailability {
+  id        String              @id @default(cuid())
+  driverId  String
+  type      UnavailabilityType
+  startAt   DateTime?
+  endAt     DateTime?
+  weekday   Int?
+  startTime String?
+  endTime   String?
+  createdAt DateTime            @default(now())
+  driver    User                @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  @@index([driverId])
 }

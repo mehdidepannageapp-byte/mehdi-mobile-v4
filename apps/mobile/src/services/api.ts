@@ -99,4 +99,7 @@ export const api = {
   review: (id: string, rating: number, comment?: string) => request(`/bookings/${id}/review`, { method: 'POST', body: JSON.stringify({ rating, comment }) }),
   driverAvailability: (available: boolean) => request<import('../types').User>('/driver/availability', { method: 'PATCH', body: JSON.stringify({ available }) }),
   driverDashboard: () => request<{ user: import('../types').User; active?: import('../types').Booking; stats: { completedCount: number; monthRevenueCents: number; totalRevenueCents: number } }>('/driver/dashboard'),
+  unavailabilities: () => request<import('../types').Unavailability[]>('/driver/unavailability'),
+  createUnavailability: (data: Omit<import('../types').Unavailability, 'id'>) => request<import('../types').Unavailability>('/driver/unavailability', { method: 'POST', body: JSON.stringify(data) }),
+  deleteUnavailability: (id: string) => request<void>(`/driver/unavailability/${id}`, { method: 'DELETE' }),
 };

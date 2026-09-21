@@ -8,6 +8,7 @@ export type Vehicle = { id: string; brand: string; model: string; plate?: string
 export type Place = { address: string; latitude: number; longitude: number };
 export type Message = { id: string; body: string; senderId: string; createdAt: string; sender?: User };
 export type Photo = { id: string; kind: 'CLIENT' | 'PICKUP' | 'DELIVERY' | 'INCIDENT'; url: string };
+export type Unavailability = { id: string; type: 'ONE_TIME' | 'RECURRING'; startAt?: string; endAt?: string; weekday?: number; startTime?: string; endTime?: string };
 export type Booking = {
   id: string; reference: string; clientId: string; driverId?: string; vehicleId?: string;
   issueType: IssueType; issueDescription?: string; status: BookingStatus;
@@ -30,7 +31,7 @@ export type RootStackParamList = {
   DriverArrival: { bookingId: string }; PickupPhotos: { bookingId: string }; Transport: { bookingId: string };
   Delivery: { bookingId: string }; MissionSummary: { bookingId: string }; DriverHistory: undefined;
   DriverEarnings: undefined; DriverProfile: undefined; DriverDocuments: undefined;
-  RefusalDelay: { bookingId: string };
+  RefusalDelay: { bookingId: string }; DriverUnavailability: undefined;
 };
 
 export type BookingDraft = {
