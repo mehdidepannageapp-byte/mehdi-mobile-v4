@@ -1,9 +1,10 @@
 import twilio from 'twilio';
 import { env } from '../config/env.js';
+import { logger } from '../config/logger.js';
 
 export async function sendSms(to: string, body: string) {
   if (!env.TWILIO_ACCOUNT_SID || !env.TWILIO_AUTH_TOKEN || !env.TWILIO_FROM_NUMBER) {
-    if (env.NODE_ENV !== 'production') console.log(`[SMS démo vers ${to}] ${body}`);
+    if (env.NODE_ENV !== 'production') logger.info({ to, body }, 'SMS démo (Twilio non configuré)');
     return;
   }
   const client = twilio(env.TWILIO_ACCOUNT_SID, env.TWILIO_AUTH_TOKEN);

@@ -8,6 +8,7 @@ import { isInServiceArea } from '../config/service-area.js';
 import { prisma } from '../config/prisma.js';
 import { requireAuth } from '../middleware/auth.js';
 import { assignSingleDriver } from '../services/assignment.js';
+import { InvalidImageError, processUploadedImage } from '../services/image.js';
 import { createInvoicePdf } from '../services/invoice.js';
 import { sendPush, sendSms } from '../services/notification.js';
 import { cancelAuthorization, captureAuthorization, createAuthorization, isAuthorizationReady } from '../services/payment.js';
@@ -15,7 +16,11 @@ import { asyncHandler } from '../utils/async-handler.js';
 
 export const bookingsRouter = Router();
 bookingsRouter.use(requireAuth);
-const upload = multer({ dest: path.resolve(process.cwd(), 'uploads'), limits: { fileSize: 10 * 1024 * 1024, files: 4 } });
+const upload = multer({
+  dest: path.resolve(process.cwd(), 'uploads'),
+  limits: { fileSize: 10 * 1024 * 1024, files: 4 },
+  fileFilter: (_req, file, cb) => cb(null, file.mimetype.startsWith('image/')),
+});
 
 const locationSchema = z.object({
   address: z.string().min(3),
@@ -186,7 +191,14 @@ bookingsRouter.post('/:id/photos/upload', upload.single('photo'), asyncHandler(a
   const booking = await authorizedBooking(String(req.params.id), req.auth!.userId);
   if (!booking) return res.status(404).json({ error: 'Demande introuvable' });
   if (!req.file) return res.status(400).json({ error: 'Photo manquante' });
-  const url = `/uploads/${req.file.filename}`;
+  let filename: string;
+  try {
+    filename = await processUploadedImage(req.file.path);
+  } catch (error) {
+    if (error instanceof InvalidImageError) return res.status(400).json({ error: error.message });
+    throw error;
+  }
+  const url = `/uploads/${filename}`;
   res.status(201).json(await prisma.photo.create({ data: { bookingId: booking.id, kind, url } }));
 }));
 

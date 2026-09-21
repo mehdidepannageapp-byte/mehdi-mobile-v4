@@ -1,11 +1,12 @@
 import express from 'express';
 import request from 'supertest';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const prismaMock = vi.hoisted(() => ({
   booking: { create: vi.fn(), findMany: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn(), update: vi.fn(), count: vi.fn() },
   user: { findFirst: vi.fn() },
   invoice: { upsert: vi.fn() },
+  photo: { create: vi.fn() },
 }));
 
 vi.mock('../config/prisma.js', () => ({ prisma: prismaMock }));
@@ -14,6 +15,9 @@ const { bookingsRouter } = await import('./bookings.js');
 const { errorHandler } = await import('../middleware/errors.js');
 const { signToken } = await import('../middleware/auth.js');
 const { BookingStatus, IssueType, PaymentMethod, PaymentStatus } = await import('@prisma/client');
+const sharp = (await import('sharp')).default;
+const { unlink } = await import('fs/promises');
+const path = (await import('path')).default;
 
 function buildApp() {
   const app = express();
@@ -213,5 +217,42 @@ describe('POST /bookings/:id/cancel', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.status).toBe(BookingStatus.CANCELLED);
+  });
+});
+
+describe('POST /bookings/:id/photos/upload', () => {
+  const writtenFiles: string[] = [];
+
+  afterEach(async () => {
+    await Promise.all(writtenFiles.splice(0).map((file) => unlink(file).catch(() => {})));
+  });
+
+  it('accepte une vraie image, la recompresse et enregistre son URL', async () => {
+    prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-1', clientId: 'client-1' });
+    prismaMock.photo.create.mockImplementation(({ data }: { data: { url: string } }) => {
+      writtenFiles.push(path.resolve(process.cwd(), 'uploads', data.url.replace('/uploads/', '')));
+      return Promise.resolve({ id: 'photo-1', ...data });
+    });
+    const png = await sharp({ create: { width: 100, height: 100, channels: 3, background: 'red' } }).png().toBuffer();
+
+    const res = await request(app).post('/bookings/booking-1/photos/upload').set('Authorization', `Bearer ${clientToken}`)
+      .field('kind', 'PICKUP')
+      .attach('photo', png, { filename: 'photo.png', contentType: 'image/png' });
+
+    expect(res.status).toBe(201);
+    expect(prismaMock.photo.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ bookingId: 'booking-1', kind: 'PICKUP', url: expect.stringMatching(/^\/uploads\/.+\.jpg$/) }),
+    }));
+  });
+
+  it('rejette un fichier qui n’est pas une image malgré une extension trompeuse', async () => {
+    prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-1', clientId: 'client-1' });
+
+    const res = await request(app).post('/bookings/booking-1/photos/upload').set('Authorization', `Bearer ${clientToken}`)
+      .field('kind', 'PICKUP')
+      .attach('photo', Buffer.from('pas une image'), { filename: 'fake.jpg', contentType: 'image/jpeg' });
+
+    expect(res.status).toBe(400);
+    expect(prismaMock.photo.create).not.toHaveBeenCalled();
   });
 });

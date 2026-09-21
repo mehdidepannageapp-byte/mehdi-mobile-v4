@@ -3,8 +3,10 @@ import { createServer } from 'http';
 import cors from 'cors';
 import express from 'express';
 import helmet from 'helmet';
+import { pinoHttp } from 'pino-http';
 import path from 'path';
 import { corsOrigins, env } from './config/env.js';
+import { logger } from './config/logger.js';
 import { prisma } from './config/prisma.js';
 import { errorHandler } from './middleware/errors.js';
 import { authRouter } from './routes/auth.js';
@@ -16,6 +18,7 @@ import { startAssignmentScheduler } from './services/assignment.js';
 import { createSocketServer } from './socket/index.js';
 
 const app = express();
+app.use(pinoHttp({ logger }));
 app.use(helmet());
 app.use(cors({
   origin(origin, callback) {
@@ -41,7 +44,7 @@ app.use(errorHandler);
 const server = createServer(app);
 createSocketServer(server);
 startAssignmentScheduler();
-server.listen(env.PORT, () => console.log(`API Mehdi Dépannage : http://localhost:${env.PORT}`));
+server.listen(env.PORT, () => logger.info(`API Mehdi Dépannage : http://localhost:${env.PORT}`));
 
 async function shutdown() {
   await prisma.$disconnect();

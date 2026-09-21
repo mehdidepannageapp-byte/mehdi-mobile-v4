@@ -3,7 +3,7 @@ import * as Notifications from 'expo-notifications';
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { Platform } from 'react-native';
 import { EAS_PROJECT_ID } from '../config';
-import { api, setApiToken } from '../services/api';
+import { api, setApiToken, setRefreshToken, setSessionHandlers, type Session } from '../services/api';
 import type { User } from '../types';
 
 type AuthValue = {
@@ -26,10 +26,17 @@ export function AuthProvider({ children }: React.PropsWithChildren) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    setSessionHandlers({
+      onSessionRefreshed: (session) => { setToken(session.token); setUser(session.user); void AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(session)); },
+      onSessionExpired: () => { setToken(null); setUser(null); void AsyncStorage.removeItem(STORAGE_KEY); },
+    });
+  }, []);
+
+  useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEY).then(async (raw) => {
       if (!raw) return;
-      const saved = JSON.parse(raw) as { token: string; user: User };
-      setApiToken(saved.token); setToken(saved.token); setUser(saved.user);
+      const saved = JSON.parse(raw) as Session;
+      setApiToken(saved.token); setRefreshToken(saved.refreshToken); setToken(saved.token); setUser(saved.user);
     }).finally(() => setLoading(false));
   }, []);
 
@@ -47,8 +54,8 @@ export function AuthProvider({ children }: React.PropsWithChildren) {
     })();
   }, [user?.id]);
 
-  async function persist(session: { token: string; user: User }) {
-    setApiToken(session.token); setToken(session.token); setUser(session.user);
+  async function persist(session: Session) {
+    setApiToken(session.token); setRefreshToken(session.refreshToken); setToken(session.token); setUser(session.user);
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(session));
   }
 
@@ -57,7 +64,7 @@ export function AuthProvider({ children }: React.PropsWithChildren) {
     requestOtp: api.requestOtp,
     verifyOtp: async (phone, code, firstName) => persist(await api.verifyOtp(phone, code, firstName)),
     demo: async (role) => persist(await api.demo(role)),
-    logout: async () => { setApiToken(null); setToken(null); setUser(null); await AsyncStorage.removeItem(STORAGE_KEY); },
+    logout: async () => { setApiToken(null); setRefreshToken(null); setToken(null); setUser(null); await AsyncStorage.removeItem(STORAGE_KEY); },
     refresh: async () => setUser(await api.me()),
   }), [user, token, loading]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

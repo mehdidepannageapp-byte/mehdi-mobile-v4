@@ -1,22 +1,69 @@
 import { API_URL } from '../config';
+import type { User } from '../types';
+
+export type Session = { token: string; refreshToken: string; user: User };
 
 let token: string | null = null;
-export function setApiToken(value: string | null) { token = value; }
+let refreshTokenValue: string | null = null;
+let onSessionRefreshed: ((session: Session) => void) | null = null;
+let onSessionExpired: (() => void) | null = null;
+let refreshInFlight: Promise<boolean> | null = null;
 
-async function uploadPhoto(bookingId: string, kind: string, uri: string) {
+export function setApiToken(value: string | null) { token = value; }
+export function setRefreshToken(value: string | null) { refreshTokenValue = value; }
+
+/** Branché par AuthContext pour persister/effacer la session quand le jeton est rafraîchi en silence. */
+export function setSessionHandlers(handlers: { onSessionRefreshed?: (session: Session) => void; onSessionExpired?: () => void }) {
+  onSessionRefreshed = handlers.onSessionRefreshed ?? null;
+  onSessionExpired = handlers.onSessionExpired ?? null;
+}
+
+async function performRefresh(): Promise<boolean> {
+  try {
+    const response = await fetch(`${API_URL}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken: refreshTokenValue }),
+    });
+    if (!response.ok) throw new Error('Rafraîchissement du jeton refusé');
+    const session = await response.json() as Session;
+    token = session.token;
+    refreshTokenValue = session.refreshToken;
+    onSessionRefreshed?.(session);
+    return true;
+  } catch {
+    token = null;
+    refreshTokenValue = null;
+    onSessionExpired?.();
+    return false;
+  }
+}
+
+/** Rafraîchit le jeton d'accès expiré, sans reconnexion manuelle. Les appels concurrents partagent la même tentative. */
+function tryRefresh(): Promise<boolean> {
+  if (!refreshTokenValue) return Promise.resolve(false);
+  if (!refreshInFlight) refreshInFlight = performRefresh().finally(() => { refreshInFlight = null; });
+  return refreshInFlight;
+}
+
+async function uploadPhoto(bookingId: string, kind: string, uri: string, isRetry = false): Promise<unknown> {
   const form = new FormData();
   form.append('kind', kind);
   form.append('photo', { uri, name: `photo-${Date.now()}.jpg`, type: 'image/jpeg' } as unknown as Blob);
   const response = await fetch(`${API_URL}/bookings/${bookingId}/photos/upload`, { method: 'POST', headers: token ? { Authorization: `Bearer ${token}` } : {}, body: form });
+  if (response.status === 401 && !isRetry && (await tryRefresh())) return uploadPhoto(bookingId, kind, uri, true);
   if (!response.ok) throw new Error('Envoi de la photo impossible');
   return response.json();
 }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+async function request<T>(path: string, options: RequestInit = {}, isRetry = false): Promise<T> {
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
     headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...options.headers },
   });
+  if (response.status === 401 && !isRetry && path !== '/auth/refresh' && (await tryRefresh())) {
+    return request<T>(path, options, true);
+  }
   if (!response.ok) {
     const body = await response.json().catch(() => ({ error: 'Erreur de connexion' })) as { error?: string };
     throw new Error(body.error ?? `Erreur ${response.status}`);
@@ -27,8 +74,8 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 export const api = {
   requestOtp: (phone: string) => request<void>('/auth/request-otp', { method: 'POST', body: JSON.stringify({ phone }) }),
-  verifyOtp: (phone: string, code: string, firstName?: string) => request<{ token: string; user: import('../types').User }>('/auth/verify-otp', { method: 'POST', body: JSON.stringify({ phone, code, firstName }) }),
-  demo: (role: 'client' | 'driver') => request<{ token: string; user: import('../types').User }>(`/auth/demo/${role}`, { method: 'POST' }),
+  verifyOtp: (phone: string, code: string, firstName?: string) => request<Session>('/auth/verify-otp', { method: 'POST', body: JSON.stringify({ phone, code, firstName }) }),
+  demo: (role: 'client' | 'driver') => request<Session>(`/auth/demo/${role}`, { method: 'POST' }),
   me: () => request<import('../types').User & { vehicles: import('../types').Vehicle[] }>('/auth/me'),
   updateMe: (data: object) => request<import('../types').User>('/auth/me', { method: 'PATCH', body: JSON.stringify(data) }),
   deleteMe: () => request<void>('/auth/me', { method: 'DELETE' }),

@@ -4,13 +4,15 @@ import { Server as SocketServer } from 'socket.io';
 import { env } from '../config/env.js';
 import { prisma } from '../config/prisma.js';
 
-type TokenPayload = { userId: string; role: 'CLIENT' | 'DRIVER' };
+type TokenPayload = { userId: string; role: 'CLIENT' | 'DRIVER'; type: 'access' | 'refresh' };
 
 export function createSocketServer(server: Server) {
   const io = new SocketServer(server, { cors: { origin: '*' } });
   io.use((socket, next) => {
     try {
-      socket.data.auth = jwt.verify(String(socket.handshake.auth.token), env.JWT_SECRET) as TokenPayload;
+      const payload = jwt.verify(String(socket.handshake.auth.token), env.JWT_SECRET) as TokenPayload;
+      if (payload.type !== 'access') throw new Error('Type de jeton invalide');
+      socket.data.auth = payload;
       next();
     } catch { next(new Error('unauthorized')); }
   });

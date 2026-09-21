@@ -4,12 +4,16 @@ import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { env } from '../config/env.js';
 import { prisma } from '../config/prisma.js';
-import { requireAuth, signToken } from '../middleware/auth.js';
+import { requireAuth, signRefreshToken, signToken, verifyRefreshToken } from '../middleware/auth.js';
 import { requestOtpLimiter, verifyOtpLimiter } from '../middleware/rate-limit.js';
 import { asyncHandler } from '../utils/async-handler.js';
 import { sendSms } from '../services/notification.js';
 
 export const authRouter = Router();
+
+function issueSession(user: { id: string; role: UserRole }) {
+  return { token: signToken({ userId: user.id, role: user.role }), refreshToken: signRefreshToken({ userId: user.id, role: user.role }) };
+}
 
 authRouter.post('/request-otp', requestOtpLimiter, asyncHandler(async (req, res) => {
   const { phone } = z.object({ phone: z.string().regex(/^\+[1-9]\d{7,14}$/) }).parse(req.body);
@@ -26,7 +30,7 @@ authRouter.post('/verify-otp', verifyOtpLimiter, asyncHandler(async (req, res) =
   await prisma.otpCode.update({ where: { id: otp.id }, data: { consumedAt: new Date() } });
   const role = phone === env.DRIVER_PHONE ? UserRole.DRIVER : UserRole.CLIENT;
   const user = await prisma.user.upsert({ where: { phone }, update: { ...(firstName ? { firstName } : {}) }, create: { phone, firstName, role } });
-  res.json({ token: signToken({ userId: user.id, role: user.role }), user });
+  res.json({ ...issueSession(user), user });
 }));
 
 authRouter.post('/demo/:role', asyncHandler(async (req, res) => {
@@ -34,7 +38,20 @@ authRouter.post('/demo/:role', asyncHandler(async (req, res) => {
   const role = req.params.role === 'driver' ? UserRole.DRIVER : UserRole.CLIENT;
   const phone = role === UserRole.DRIVER ? env.DRIVER_PHONE : '+33611111111';
   const user = await prisma.user.upsert({ where: { phone }, update: { role }, create: { phone, firstName: role === UserRole.DRIVER ? 'Mehdi' : 'Walid', role } });
-  res.json({ token: signToken({ userId: user.id, role: user.role }), user });
+  res.json({ ...issueSession(user), user });
+}));
+
+authRouter.post('/refresh', asyncHandler(async (req, res) => {
+  const { refreshToken } = z.object({ refreshToken: z.string().min(1) }).parse(req.body);
+  let payload: { userId: string; role: 'CLIENT' | 'DRIVER' };
+  try {
+    payload = verifyRefreshToken(refreshToken);
+  } catch {
+    return res.status(401).json({ error: 'Session expirée, reconnectez-vous' });
+  }
+  const user = await prisma.user.findUnique({ where: { id: payload.userId } });
+  if (!user) return res.status(401).json({ error: 'Session expirée, reconnectez-vous' });
+  res.json({ ...issueSession(user), user });
 }));
 
 authRouter.get('/me', requireAuth, asyncHandler(async (req, res) => {
@@ -50,6 +67,16 @@ authRouter.patch('/me', requireAuth, asyncHandler(async (req, res) => {
 
 authRouter.delete('/me', requireAuth, asyncHandler(async (req, res) => {
   if (req.auth!.role === UserRole.DRIVER) return res.status(400).json({ error: 'Le compte professionnel ne peut pas être supprimé depuis l’application' });
-  await prisma.user.delete({ where: { id: req.auth!.userId } });
+  const hasHistory = await prisma.booking.findFirst({ where: { clientId: req.auth!.userId }, select: { id: true } });
+  if (hasHistory) {
+    // Des courses passées existent (factures, avis, historique du dépanneur) : on anonymise le
+    // compte plutôt que de le supprimer, ce qui casserait ces enregistrements liés.
+    await prisma.user.update({
+      where: { id: req.auth!.userId },
+      data: { phone: `deleted:${req.auth!.userId}`, firstName: null, email: null, pushToken: null },
+    });
+  } else {
+    await prisma.user.delete({ where: { id: req.auth!.userId } });
+  }
   res.status(204).end();
 }));
