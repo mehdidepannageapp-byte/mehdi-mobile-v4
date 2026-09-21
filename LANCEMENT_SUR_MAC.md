@@ -53,6 +53,14 @@ npm run dev:api
 
 Laissez ce terminal ouvert. Il doit afficher l’adresse `http://localhost:4000`.
 
+Pour vérifier que le backend fonctionne correctement avant de lancer l'application (facultatif), dans un troisième terminal :
+
+```bash
+npm --workspace @mehdi/api run recipe
+```
+
+Ce script démarre son propre serveur temporaire et rejoue tous les parcours principaux (carte/espèces, réparation sur place/transport, immédiat/programmé, et les flux ajoutés en cours de développement) contre la base PostgreSQL déjà migrée ; il doit afficher `0 échoué(s)` à la fin.
+
 ## 7. Lancer l’application iPhone
 
 Dans un second terminal, toujours à la racine du projet :
