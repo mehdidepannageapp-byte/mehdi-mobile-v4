@@ -23,7 +23,8 @@ const config: ExpoConfig = {
   },
   plugins: [
     ['expo-location', { locationWhenInUsePermission: 'Autoriser Mehdi Dépannage à accéder à votre position.' }],
-    ['expo-image-picker', { photosPermission: 'Autoriser l’accès aux photos pour illustrer la panne.' }],
+    ['expo-image-picker', { photosPermission: 'Autoriser l’accès aux photos pour illustrer la panne.', cameraPermission: 'Vous pouvez photographier votre moto ou une intervention.' }],
+    ['expo-camera', { cameraPermission: 'Vous pouvez photographier votre moto ou une intervention.' }],
     ['expo-notifications', { color: '#F6C400' }],
     ['@stripe/stripe-react-native', { merchantIdentifier: 'merchant.fr.mehdidepannage.app', enableGooglePay: true }],
   ],
