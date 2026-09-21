@@ -29,8 +29,8 @@ export function PrimaryButton({ title, onPress, disabled, loading, tone = 'yello
   </Pressable>;
 }
 
-export function SecondaryButton({ title, onPress, icon, danger }: { title: string; onPress: () => void; icon?: keyof typeof Ionicons.glyphMap; danger?: boolean }) {
-  return <Pressable onPress={onPress} style={styles.secondary}>{icon ? <Ionicons name={icon} size={20} color={danger ? colors.red : colors.text} /> : null}<Text style={[styles.secondaryText, danger && { color: colors.red }]}>{title}</Text></Pressable>;
+export function SecondaryButton({ title, onPress, icon, danger, disabled }: { title: string; onPress: () => void; icon?: keyof typeof Ionicons.glyphMap; danger?: boolean; disabled?: boolean }) {
+  return <Pressable onPress={onPress} disabled={disabled} style={[styles.secondary, disabled && { opacity: .45 }]}>{icon ? <Ionicons name={icon} size={20} color={danger ? colors.red : colors.text} /> : null}<Text style={[styles.secondaryText, danger && { color: colors.red }]}>{title}</Text></Pressable>;
 }
 
 export function Card({ children, style, onPress }: React.PropsWithChildren<{ style?: StyleProp<ViewStyle>; onPress?: () => void }>) {

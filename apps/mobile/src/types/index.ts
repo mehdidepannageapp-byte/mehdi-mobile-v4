@@ -9,6 +9,7 @@ export type Place = { address: string; latitude: number; longitude: number };
 export type Message = { id: string; body: string; senderId: string; createdAt: string; sender?: User };
 export type Photo = { id: string; kind: 'CLIENT' | 'PICKUP' | 'DELIVERY' | 'INCIDENT'; url: string };
 export type Unavailability = { id: string; type: 'ONE_TIME' | 'RECURRING'; startAt?: string; endAt?: string; weekday?: number; startTime?: string; endTime?: string };
+export type Incident = { id: string; type: string; description?: string; status: 'OPEN' | 'RESOLVED'; authorId: string; createdAt: string };
 export type Booking = {
   id: string; reference: string; clientId: string; driverId?: string; vehicleId?: string;
   issueType: IssueType; issueDescription?: string; status: BookingStatus;
@@ -17,7 +18,7 @@ export type Booking = {
   distanceKm: number; scheduledFor?: string; proposedFor?: string; estimatedPriceCents: number; finalPriceCents?: number;
   paymentMethod: PaymentMethod; paymentStatus?: 'PENDING' | 'AUTHORIZED' | 'PAID' | 'FAILED';
   createdAt: string; completedAt?: string; client?: User; driver?: User; vehicle?: Vehicle;
-  messages?: Message[]; photos?: Photo[]; invoice?: { number: string };
+  messages?: Message[]; photos?: Photo[]; incidents?: Incident[]; invoice?: { number: string };
 };
 
 export type RootStackParamList = {
@@ -26,12 +27,13 @@ export type RootStackParamList = {
   RouteChoice: undefined; Schedule: undefined; Quote: undefined; Searching: { bookingId: string };
   ClientTracking: { bookingId: string }; ClientCompleted: { bookingId: string }; Invoice: { bookingId: string };
   ClientHistory: undefined; ClientProfile: undefined; Support: undefined; Chat: { bookingId: string };
-  Proposal: { bookingId: string };
+  Proposal: { bookingId: string }; Vehicles: undefined; Notifications: undefined;
   DriverHome: undefined; MissionOffer: { bookingId: string }; DriverNavigation: { bookingId: string };
   DriverArrival: { bookingId: string }; PickupPhotos: { bookingId: string }; Transport: { bookingId: string };
   Delivery: { bookingId: string }; MissionSummary: { bookingId: string }; DriverHistory: undefined;
   DriverEarnings: undefined; DriverProfile: undefined; DriverDocuments: undefined;
   RefusalDelay: { bookingId: string }; DriverUnavailability: undefined; DriverConflicts: undefined;
+  ReportIncident: { bookingId: string };
 };
 
 export type BookingDraft = {

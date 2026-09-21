@@ -6,7 +6,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Alert, Image, Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 import { io, type Socket } from 'socket.io-client';
-import { AppScreen, Card, Header, Money, OptionCard, Pill, PrimaryButton, SecondaryButton, SectionTitle, ToggleRow, ui } from '../../components/ui';
+import { AppScreen, Card, Field, Header, Money, OptionCard, Pill, PrimaryButton, SecondaryButton, SectionTitle, ToggleRow, ui } from '../../components/ui';
 import { API_URL } from '../../config';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
@@ -73,7 +73,31 @@ export function TransportScreen({ navigation, route }: Props<'Transport'>) {
   const mission = booking;
   async function openDestination() { const lat = mission.destinationLatitude; const lng = mission.destinationLongitude; const waze = `waze://?ll=${lat},${lng}&navigate=yes`; if (await Linking.canOpenURL(waze)) return Linking.openURL(waze); return Linking.openURL(Platform.OS === 'ios' ? `http://maps.apple.com/?daddr=${lat},${lng}&dirflg=d` : `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`); }
   async function start() { await api.updateStatus(mission.id, 'IN_TRANSIT'); setStarted(true); await openDestination(); }
-  return <AppScreen><Header title="Chargement & transport" subtitle={booking.reference} onBack={() => navigation.navigate('DriverHome')} /><View style={styles.transportHero}><Ionicons name="car-sport" size={72} color={colors.yellow} /><Pill label={started ? 'TRANSPORT EN COURS' : 'MOTO CHARGÉE'} tone={started ? 'green' : 'yellow'} /></View><Card><Step done text="Dépanneur sur place" /><Step done text="Moto chargée" /><Step done={started} text="Transport vers la destination" /><Step text="Livraison au client / garage" /></Card><Card><Text style={ui.label}>DESTINATION</Text><Text style={ui.optionTitle}>{booking.destinationAddress}</Text></Card>{started ? <PrimaryButton title="Arrivé à destination" tone="green" onPress={() => navigation.navigate('Delivery', { bookingId: booking.id })} /> : <PrimaryButton title="Démarrer le transport" icon="navigate" onPress={start} />}<SecondaryButton title="Signaler un problème" danger icon="warning" onPress={() => Alert.alert('Incident signalé', 'Le support a été averti. Vous pouvez ajouter un message à la mission.')} /></AppScreen>;
+  return <AppScreen><Header title="Chargement & transport" subtitle={booking.reference} onBack={() => navigation.navigate('DriverHome')} /><View style={styles.transportHero}><Ionicons name="car-sport" size={72} color={colors.yellow} /><Pill label={started ? 'TRANSPORT EN COURS' : 'MOTO CHARGÉE'} tone={started ? 'green' : 'yellow'} /></View><Card><Step done text="Dépanneur sur place" /><Step done text="Moto chargée" /><Step done={started} text="Transport vers la destination" /><Step text="Livraison au client / garage" /></Card><Card><Text style={ui.label}>DESTINATION</Text><Text style={ui.optionTitle}>{booking.destinationAddress}</Text></Card>{started ? <PrimaryButton title="Arrivé à destination" tone="green" onPress={() => navigation.navigate('Delivery', { bookingId: booking.id })} /> : <PrimaryButton title="Démarrer le transport" icon="navigate" onPress={start} />}<SecondaryButton title="Signaler un problème" danger icon="warning" onPress={() => navigation.navigate('ReportIncident', { bookingId: booking.id })} /></AppScreen>;
+}
+
+const incidentTypes = ['Panne pendant le transport', 'Problème avec le client', 'Accident / chute', 'Autre problème'];
+
+// B03 : incident réellement persisté (remplace l'ancienne alerte locale factice).
+export function ReportIncidentScreen({ navigation, route }: Props<'ReportIncident'>) {
+  const [type, setType] = useState<string | null>(null);
+  const [description, setDescription] = useState('');
+  const [loading, setLoading] = useState(false);
+  async function submit() {
+    if (!type) return;
+    try {
+      setLoading(true);
+      await api.createIncident(route.params.bookingId, type, description.trim() || undefined);
+      Alert.alert('Incident signalé', 'Le support a été averti.', [{ text: 'OK', onPress: () => navigation.goBack() }]);
+    } catch (e) {
+      Alert.alert('Envoi impossible', e instanceof Error ? e.message : 'Réessayez.');
+    } finally { setLoading(false); }
+  }
+  return <AppScreen><Header title="Signaler un problème" subtitle="Décrivez la situation" onBack={() => navigation.goBack()} />
+    {incidentTypes.map((t) => <OptionCard key={t} icon="warning" title={t} selected={type === t} onPress={() => setType(t)} tone="red" />)}
+    <Field label="Détails (facultatif)" value={description} onChangeText={setDescription} placeholder="Précisez la situation…" multiline />
+    <PrimaryButton title="Envoyer" tone="red" onPress={submit} loading={loading} disabled={!type} />
+  </AppScreen>;
 }
 
 export function DeliveryScreen({ navigation, route }: Props<'Delivery'>) {
@@ -81,7 +105,7 @@ export function DeliveryScreen({ navigation, route }: Props<'Delivery'>) {
   useEffect(() => { api.booking(route.params.bookingId).then(setBooking); }, []);
   async function pick() { const result = await ImagePicker.launchCameraAsync({ quality: .75 }); if (!result.canceled) setPhotos((old) => [...old, result.assets[0]!.uri]); }
   async function finish() { try { setLoading(true); await api.updateStatus(route.params.bookingId, 'DELIVERED'); for (const uri of photos) await api.uploadPhoto(route.params.bookingId, 'DELIVERY', uri); await api.updateStatus(route.params.bookingId, 'COMPLETED', { cashReceived: booking?.paymentMethod === 'CASH' ? cashReceived : undefined }); navigation.replace('MissionSummary', { bookingId: route.params.bookingId }); } catch (e) { Alert.alert('Mission non terminée', e instanceof Error ? e.message : 'Réessayez.'); } finally { setLoading(false); } }
-  return <AppScreen><Header title="Livraison" subtitle="Dernière étape" onBack={() => navigation.goBack()} /><View style={styles.success}><Ionicons name="checkmark-circle" size={88} color={colors.green} /><Text style={styles.title}>Moto livrée</Text><Text style={styles.centerText}>Confirmez que la moto est arrivée à la destination prévue.</Text></View>{booking?.paymentMethod === 'CASH' ? <ToggleRow title="Paiement en espèces reçu" subtitle={`${((booking.finalPriceCents ?? booking.estimatedPriceCents) / 100).toFixed(2)} € remis par le client`} value={cashReceived} onValueChange={setCashReceived} /> : <Card><Info icon="card" text="Paiement par carte préautorisé" /></Card>}<SectionTitle>Photos finales facultatives</SectionTitle><View style={styles.photos}>{photos.map((uri) => <Image key={uri} source={{ uri }} style={styles.photo} />)}<Pressable onPress={pick} style={styles.photoAdd}><Ionicons name="camera" size={28} color={colors.yellow} /><Text style={styles.yellow}>Ajouter</Text></Pressable></View><PrimaryButton title="Terminer la mission" tone="green" onPress={finish} loading={loading} disabled={booking?.paymentMethod === 'CASH' && !cashReceived} /></AppScreen>;
+  return <AppScreen><Header title="Livraison" subtitle="Dernière étape" onBack={() => navigation.goBack()} /><View style={styles.success}><Ionicons name="checkmark-circle" size={88} color={colors.green} /><Text style={styles.title}>Moto livrée</Text><Text style={styles.centerText}>Confirmez que la moto est arrivée à la destination prévue.</Text></View>{booking?.paymentMethod === 'CASH' ? <ToggleRow title="Paiement en espèces reçu" subtitle={`${((booking.finalPriceCents ?? booking.estimatedPriceCents) / 100).toFixed(2)} € remis par le client`} value={cashReceived} onValueChange={setCashReceived} /> : <Card><Info icon="card" text="Paiement par carte préautorisé" /></Card>}<SectionTitle>Photo de livraison (obligatoire)</SectionTitle><Text style={ui.muted}>Au moins une photo est requise avant de clôturer la mission.</Text><View style={styles.photos}>{photos.map((uri) => <Image key={uri} source={{ uri }} style={styles.photo} />)}<Pressable onPress={pick} style={styles.photoAdd}><Ionicons name="camera" size={28} color={colors.yellow} /><Text style={styles.yellow}>Ajouter</Text></Pressable></View><PrimaryButton title="Terminer la mission" tone="green" onPress={finish} loading={loading} disabled={(booking?.paymentMethod === 'CASH' && !cashReceived) || photos.length === 0} /></AppScreen>;
 }
 
 export function MissionSummaryScreen({ navigation, route }: Props<'MissionSummary'>) {

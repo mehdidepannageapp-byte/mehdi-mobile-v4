@@ -302,10 +302,13 @@ bookingsRouter.post('/:id/messages', asyncHandler(async (req, res) => {
   res.status(201).json(await prisma.message.create({ data: { bookingId: booking.id, senderId: req.auth!.userId, body }, include: { sender: true } }));
 }));
 
+// B09 : commentaire saisi librement côté mobile ; le serveur rejette proprement un doublon
+// (Review.bookingId est unique) plutôt que de laisser remonter une erreur de contrainte brute.
 bookingsRouter.post('/:id/review', asyncHandler(async (req, res) => {
-  const { rating, comment } = z.object({ rating: z.number().int().min(1).max(5), comment: z.string().max(500).optional() }).parse(req.body);
+  const { rating, comment } = z.object({ rating: z.number().int().min(1).max(5), comment: z.string().trim().max(500).optional() }).parse(req.body);
   const booking = await authorizedBooking(String(req.params.id), req.auth!.userId);
   if (!booking || booking.status !== BookingStatus.COMPLETED || !booking.driverId) return res.status(409).json({ error: 'Avis impossible' });
+  if (booking.review) return res.status(409).json({ error: 'Un avis a déjà été envoyé pour cette course' });
   res.status(201).json(await prisma.review.create({ data: { bookingId: booking.id, authorId: req.auth!.userId, recipientId: booking.driverId, rating, comment } }));
 }));
 

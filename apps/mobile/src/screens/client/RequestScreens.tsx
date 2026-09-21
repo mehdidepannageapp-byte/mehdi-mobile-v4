@@ -83,6 +83,8 @@ export function ScheduleScreen({ navigation }: Props<'Schedule'>) {
 
 export function Chip({ text, active, onPress }: { text: string; active: boolean; onPress: () => void }) { return <Pressable onPress={onPress} style={[styles.chip, active && styles.chipActive]}><Text style={[styles.chipText, active && { color: colors.bg }]}>{text}</Text></Pressable>; }
 
+type PricingGrid = { baseByIssueCents: Record<string, number>; perKmCents: number; nightSurchargeRate: number; weekendSurchargeRate: number };
+
 export function QuoteScreen({ navigation }: Props<'Quote'>) {
   const { draft, setActive } = useBooking();
   const { initPaymentSheet, presentPaymentSheet } = useStripe();
@@ -91,8 +93,11 @@ export function QuoteScreen({ navigation }: Props<'Quote'>) {
   const [retryCount, setRetryCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CARD');
+  const [grid, setGrid] = useState<PricingGrid | null>(null);
   const distanceKm = estimateRouteDistanceKm(draft.pickup, draft.destination);
   const invalidRoute = distanceKm === null;
+
+  useEffect(() => { api.bookingsConfig().then((c) => setGrid(c.pricing)).catch(() => undefined); }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -112,6 +117,24 @@ export function QuoteScreen({ navigation }: Props<'Quote'>) {
       });
     return () => { cancelled = true; };
   }, [draft.issueType, distanceKm, draft.scheduledFor?.getTime(), retryCount]);
+
+  // Ventilation informative (§2.5) : reflète la grille affichée au client. Le montant définitif
+  // reste celui calculé par le serveur (amount) — jamais recalculé ni imposé par le mobile.
+  const breakdown = (() => {
+    if (!grid || !draft.issueType || distanceKm === null) return null;
+    const date = draft.scheduledFor ?? new Date();
+    const base = grid.baseByIssueCents[draft.issueType] ?? 0;
+    const distance = Math.round(distanceKm * grid.perKmCents);
+    const hour = date.getHours();
+    const isNight = hour >= 20 || hour < 7;
+    const isWeekend = date.getDay() === 0 || date.getDay() === 6;
+    const subtotal = base + distance;
+    return {
+      base, distance,
+      night: isNight ? Math.round(subtotal * grid.nightSurchargeRate) : 0,
+      weekend: isWeekend ? Math.round(subtotal * grid.weekendSurchargeRate) : 0,
+    };
+  })();
 
   async function pay() {
     if (loading) return;
@@ -148,10 +171,11 @@ export function QuoteScreen({ navigation }: Props<'Quote'>) {
     } finally { setLoading(false); }
   }
 
-  return <AppScreen><Header title="Votre devis" subtitle="Prix calculé automatiquement" onBack={() => navigation.goBack()} /><Card style={styles.quote}><Pill label="ESTIMATION" tone="yellow" />{estimateError ? <Text style={styles.errorText}>{estimateError}</Text> : amount === null ? <Text style={ui.muted}>Calcul du montant…</Text> : <Money cents={amount} size={42} />}{paymentMethod === 'CARD' ? <Text style={styles.centered}>Le montant sera préautorisé maintenant et débité uniquement à la fin de l’intervention.</Text> : <Text style={styles.centered}>Vous réglerez le dépanneur en espèces à la fin de l’intervention. Aucune préautorisation bancaire.</Text>}{estimateError ? <SecondaryButton title={invalidRoute ? 'Corriger le trajet' : 'Réessayer le calcul'} onPress={() => invalidRoute ? navigation.navigate('RouteChoice') : setRetryCount((count) => count + 1)} /> : null}</Card>
+  return <AppScreen><Header title="Votre devis" subtitle="Prix définitif, hors suppléments de la grille" onBack={() => navigation.goBack()} /><Card style={styles.quote}><Pill label="PRIX DÉFINITIF" tone="green" />{estimateError ? <Text style={styles.errorText}>{estimateError}</Text> : amount === null ? <Text style={ui.muted}>Calcul du montant…</Text> : <Money cents={amount} size={42} />}{paymentMethod === 'CARD' ? <Text style={styles.centered}>Le montant sera préautorisé maintenant et débité uniquement à la fin de l’intervention.</Text> : <Text style={styles.centered}>Vous réglerez le dépanneur en espèces à la fin de l’intervention. Aucune préautorisation bancaire.</Text>}{estimateError ? <SecondaryButton title={invalidRoute ? 'Corriger le trajet' : 'Réessayer le calcul'} onPress={() => invalidRoute ? navigation.navigate('RouteChoice') : setRetryCount((count) => count + 1)} /> : null}</Card>
     <Card><PriceRow label="Type d’intervention" value={issues.find((x) => x.value === draft.issueType)?.title ?? ''} /><PriceRow label="Distance estimée" value={distanceKm === null ? 'À corriger' : `${distanceKm.toFixed(1)} km (approximatif)`} /><PriceRow label="Intervention" value={draft.scheduledFor ? draft.scheduledFor.toLocaleString('fr-FR') : 'Dès maintenant'} /></Card>
+    {breakdown ? <Card><Text style={ui.label}>DÉTAIL DU CALCUL</Text><PriceRow label="Forfait selon la panne" value={(breakdown.base / 100).toFixed(2) + ' €'} /><PriceRow label={`Distance (${distanceKm?.toFixed(1)} km)`} value={(breakdown.distance / 100).toFixed(2) + ' €'} />{breakdown.night > 0 ? <PriceRow label="Supplément nuit" value={(breakdown.night / 100).toFixed(2) + ' €'} /> : null}{breakdown.weekend > 0 ? <PriceRow label="Supplément week-end" value={(breakdown.weekend / 100).toFixed(2) + ' €'} /> : null}<Text style={[ui.muted, { marginTop: 4 }]}>D’autres suppléments (changement de destination, distance ajoutée, jour férié) peuvent s’appliquer en cours de mission, toujours selon cette même grille et de façon traçable.</Text></Card> : null}
     <SectionTitle>Mode de paiement</SectionTitle><OptionCard icon="card" title="Carte bancaire" subtitle="Carte, Apple Pay ou Google Pay" selected={paymentMethod === 'CARD'} onPress={() => setPaymentMethod('CARD')} /><OptionCard icon="cash" title="Espèces" subtitle="À remettre au dépanneur à la livraison" selected={paymentMethod === 'CASH'} onPress={() => setPaymentMethod('CASH')} />
-    {paymentMethod === 'CARD' ? <View style={styles.secure}><Ionicons name="lock-closed" color={colors.green} size={18} /><Text style={ui.muted}>Préautorisation sécurisée par Stripe</Text></View> : <Card><Text style={ui.muted}>Aucun débit ne sera effectué. Le dépanneur confirmera la réception des espèces à la fin de la mission.</Text></Card>}<PrimaryButton title={paymentMethod === 'CARD' ? 'Payer et confirmer' : 'Confirmer et payer en espèces'} icon={paymentMethod === 'CARD' ? 'card' : 'cash'} onPress={() => void pay()} loading={loading} disabled={amount === null || invalidRoute || Boolean(estimateError)} /><Text style={[ui.muted, { textAlign: 'center' }]}>Le tarif est provisoire jusqu’à validation de la grille commerciale définitive.</Text>
+    {paymentMethod === 'CARD' ? <View style={styles.secure}><Ionicons name="lock-closed" color={colors.green} size={18} /><Text style={ui.muted}>Préautorisation sécurisée par Stripe</Text></View> : <Card><Text style={ui.muted}>Aucun débit ne sera effectué. Le dépanneur confirmera la réception des espèces à la fin de la mission.</Text></Card>}<PrimaryButton title={paymentMethod === 'CARD' ? 'Payer et confirmer' : 'Confirmer et payer en espèces'} icon={paymentMethod === 'CARD' ? 'card' : 'cash'} onPress={() => void pay()} loading={loading} disabled={amount === null || invalidRoute || Boolean(estimateError)} />
   </AppScreen>;
 }
 function PriceRow({ label, value }: { label: string; value: string }) { return <View style={styles.priceRow}><Text style={ui.muted}>{label}</Text><Text style={styles.priceValue}>{value}</Text></View>; }
