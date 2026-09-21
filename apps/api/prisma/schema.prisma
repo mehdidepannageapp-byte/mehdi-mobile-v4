@@ -62,6 +62,56 @@ enum UnavailabilityType {
   RECURRING
 }
 
+enum ServiceType {
+  ON_SITE_REPAIR
+  TRANSPORT
+}
+
+enum AppointmentChangeStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+// Catégories de supplément autorisées par la grille tarifaire (config/pricing.ts).
+// Aucun supplément hors de cette liste n'est accepté par l'API.
+enum SurchargeCategory {
+  DESTINATION_CHANGE
+  EXTRA_DISTANCE
+  NIGHT
+  SUNDAY
+  HOLIDAY
+}
+
+enum IncidentStatus {
+  OPEN
+  RESOLVED
+}
+
+enum ContactMethod {
+  CALL
+  MESSAGE
+}
+
+enum CancellationRule {
+  FREE_ADVANCE
+  SAME_DAY_CARD_FEE
+  SAME_DAY_CASH_FREE
+}
+
+enum PostPickupRequestStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+enum FinancialStatus {
+  PENDING
+  CAPTURED
+  REFUNDED
+  NOT_APPLICABLE
+}
+
 model User {
   id            String      @id @default(cuid())
   phone         String      @unique
@@ -80,6 +130,7 @@ model User {
   reviewsGiven  Review[]    @relation("ReviewsGiven")
   reviewsReceived Review[]  @relation("ReviewsReceived")
   unavailabilities Unavailability[]
+  notificationPreference NotificationPreference?
 }
 
 model OtpCode {
@@ -113,13 +164,16 @@ model Booking {
   issueType              IssueType
   issueDescription      String?
   status                 BookingStatus @default(DRAFT)
+  serviceType             ServiceType   @default(TRANSPORT)
   pickupAddress          String
   pickupLatitude         Float
   pickupLongitude        Float
-  destinationAddress     String
-  destinationLatitude    Float
-  destinationLongitude   Float
-  distanceKm             Float
+  // Nulles pour une réparation sur place tant qu'elle n'est pas convertie en transport (voir
+  // MissionEvent "SERVICE_TYPE_CONVERTED" pour l'historique de conversion).
+  destinationAddress     String?
+  destinationLatitude    Float?
+  destinationLongitude   Float?
+  distanceKm             Float?
   scheduledFor           DateTime?
   proposedFor            DateTime?
   retryAfter             DateTime?
@@ -141,6 +195,14 @@ model Booking {
   locations              LiveLocation[]
   invoice                Invoice?
   review                 Review?
+  appointmentChangeRequests AppointmentChangeRequest[]
+  surcharges              Surcharge[]
+  incidents               Incident[]
+  contactAttempts         ContactAttempt[]
+  absence                 ClientAbsence?
+  cancellationRecord      CancellationRecord?
+  postPickupCancellationRequests PostPickupCancellationRequest[]
+  events                  MissionEvent[]
   @@index([status, scheduledFor])
 }
 
@@ -215,4 +277,142 @@ model Unavailability {
   createdAt DateTime            @default(now())
   driver    User                @relation(fields: [driverId], references: [id], onDelete: Cascade)
   @@index([driverId])
+}
+
+// Garages partenaires suggérés comme destination. Alimentation manuelle (seed / admin DB) pour
+// cette version. Le client garde toujours la possibilité de saisir une autre adresse libre.
+model Garage {
+  id        String   @id @default(cuid())
+  name      String
+  address   String
+  latitude  Float
+  longitude Float
+  phone     String?
+  active    Boolean  @default(true)
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+}
+
+// Demande du client de déplacer un rendez-vous programmé (SCHEDULED). L'ancien créneau
+// (Booking.scheduledFor) reste valide tant que le dépanneur n'a pas accepté.
+model AppointmentChangeRequest {
+  id                   String                   @id @default(cuid())
+  bookingId            String
+  previousScheduledFor DateTime?
+  proposedFor          DateTime
+  status               AppointmentChangeStatus  @default(PENDING)
+  requestedById        String
+  decidedById          String?
+  decidedAt            DateTime?
+  createdAt            DateTime                 @default(now())
+  booking              Booking                  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  @@index([bookingId])
+}
+
+// Supplément appliqué par le dépanneur, obligatoirement issu de la grille tarifaire
+// (config/pricing.ts) : catégorie limitée, montant calculé côté serveur, traçabilité complète.
+model Surcharge {
+  id                 String            @id @default(cuid())
+  bookingId          String
+  category           SurchargeCategory
+  amountCents        Int
+  gridVersion        String
+  authorId           String
+  previousTotalCents Int
+  newTotalCents      Int
+  createdAt          DateTime          @default(now())
+  booking            Booking           @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  @@index([bookingId])
+}
+
+model Incident {
+  id          String         @id @default(cuid())
+  bookingId   String
+  type        String
+  description String?
+  status      IncidentStatus @default(OPEN)
+  authorId    String
+  createdAt   DateTime       @default(now())
+  resolvedAt  DateTime?
+  booking     Booking        @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  @@index([bookingId])
+}
+
+// Trace d'une tentative de contact (appel/message) avant qu'une absence ne soit déclarée.
+model ContactAttempt {
+  id        String        @id @default(cuid())
+  bookingId String
+  method    ContactMethod
+  authorId  String
+  note      String?
+  createdAt DateTime      @default(now())
+  booking   Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  @@index([bookingId])
+}
+
+// Déclaration manuelle d'absence client (aucun délai automatique). Frais fixés à 50% du devis
+// accepté (config/pricing.ts), calculés côté serveur.
+model ClientAbsence {
+  id           String   @id @default(cuid())
+  bookingId    String   @unique
+  declaredById String
+  reason       String
+  feeCents     Int
+  createdAt    DateTime @default(now())
+  booking      Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+}
+
+// Trace d'audit d'une annulation (§2.6) : règle appliquée, base de calcul, frais, statut financier.
+model CancellationRecord {
+  id               String            @id @default(cuid())
+  bookingId        String            @unique
+  initiatedById    String
+  initiatedAt      DateTime          @default(now())
+  rule             CancellationRule
+  basisAmountCents Int
+  feeCents         Int
+  financialStatus  FinancialStatus   @default(PENDING)
+  reason           String?
+  booking          Booking           @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+}
+
+// Après chargement de la moto, le client ne peut pas annuler directement : il soumet une demande,
+// le dépanneur décide et, s'il l'accepte, fixe une nouvelle destination (§2.6).
+model PostPickupCancellationRequest {
+  id                      String                   @id @default(cuid())
+  bookingId               String
+  requestedById           String
+  reason                  String?
+  status                  PostPickupRequestStatus  @default(PENDING)
+  newDestinationAddress   String?
+  newDestinationLatitude  Float?
+  newDestinationLongitude Float?
+  decidedById             String?
+  decidedAt               DateTime?
+  createdAt               DateTime                 @default(now())
+  booking                 Booking                  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  @@index([bookingId])
+}
+
+// Préférences de notification facultatives (push). Les communications transactionnelles
+// obligatoires (confirmation de réservation, facture) ne sont jamais bloquées par ces préférences.
+model NotificationPreference {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  pushEnabled Boolean  @default(true)
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Historique générique des changements de statut et opérations financières d'une mission,
+// pour la traçabilité support (§5).
+model MissionEvent {
+  id        String   @id @default(cuid())
+  bookingId String
+  type      String
+  payload   Json?
+  authorId  String?
+  createdAt DateTime @default(now())
+  booking   Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  @@index([bookingId, createdAt])
 }
