@@ -12,6 +12,7 @@ import { errorHandler } from './middleware/errors.js';
 import { authRouter } from './routes/auth.js';
 import { bookingsRouter } from './routes/bookings.js';
 import { driverRouter } from './routes/driver.js';
+import { garagesRouter } from './routes/garages.js';
 import { placesRouter } from './routes/places.js';
 import { vehiclesRouter } from './routes/vehicles.js';
 import { startAssignmentScheduler } from './services/assignment.js';
@@ -36,6 +37,7 @@ app.get('/health', async (_req, res) => {
 });
 app.use('/auth', authRouter);
 app.use('/places', placesRouter);
+app.use('/garages', garagesRouter);
 app.use('/vehicles', vehiclesRouter);
 app.use('/bookings', bookingsRouter);
 app.use('/driver', driverRouter);

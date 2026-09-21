@@ -10,6 +10,12 @@ const prismaMock = vi.hoisted(() => ({
   cancellationRecord: { findUnique: vi.fn(), create: vi.fn() },
   incident: { create: vi.fn() },
   notificationPreference: { findUnique: vi.fn() },
+  missionEvent: { create: vi.fn() },
+  appointmentChangeRequest: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
+  surcharge: { create: vi.fn() },
+  contactAttempt: { create: vi.fn() },
+  clientAbsence: { findUnique: vi.fn(), create: vi.fn() },
+  postPickupCancellationRequest: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
   $transaction: vi.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
 }));
 
@@ -18,7 +24,7 @@ vi.mock('../config/prisma.js', () => ({ prisma: prismaMock }));
 const { bookingsRouter } = await import('./bookings.js');
 const { errorHandler } = await import('../middleware/errors.js');
 const { signToken } = await import('../middleware/auth.js');
-const { BookingStatus, IssueType, PaymentMethod, PaymentStatus } = await import('@prisma/client');
+const { BookingStatus, IssueType, PaymentMethod, PaymentStatus, ServiceType } = await import('@prisma/client');
 const sharp = (await import('sharp')).default;
 const { unlink } = await import('fs/promises');
 const path = (await import('path')).default;
@@ -154,14 +160,14 @@ describe('PATCH /bookings/:id/status (transitions)', () => {
   });
 
   it('refuse une transition non autorisée avec 409', async () => {
-    prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-1', status: BookingStatus.DRIVER_ARRIVED, paymentMethod: PaymentMethod.CASH, estimatedPriceCents: 1000 });
+    prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-1', status: BookingStatus.DRIVER_ARRIVED, serviceType: ServiceType.TRANSPORT, paymentMethod: PaymentMethod.CASH, estimatedPriceCents: 1000 });
     const res = await request(app).patch('/bookings/booking-1/status').set('Authorization', `Bearer ${driverToken}`)
       .send({ status: BookingStatus.DRIVER_EN_ROUTE });
     expect(res.status).toBe(409);
   });
 
   it('autorise une transition valide et notifie le client', async () => {
-    prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-1', status: BookingStatus.ASSIGNED, paymentMethod: PaymentMethod.CASH, estimatedPriceCents: 1000, client: { pushToken: null } });
+    prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-1', status: BookingStatus.ASSIGNED, serviceType: ServiceType.TRANSPORT, paymentMethod: PaymentMethod.CASH, estimatedPriceCents: 1000, client: { pushToken: null } });
     prismaMock.booking.update.mockResolvedValue({ id: 'booking-1', status: BookingStatus.DRIVER_EN_ROUTE });
 
     const res = await request(app).patch('/bookings/booking-1/status').set('Authorization', `Bearer ${driverToken}`)
@@ -172,7 +178,7 @@ describe('PATCH /bookings/:id/status (transitions)', () => {
   });
 
   it('exige la confirmation du paiement en espèces pour finaliser une course CASH', async () => {
-    prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-1', status: BookingStatus.DELIVERED, paymentMethod: PaymentMethod.CASH, estimatedPriceCents: 1000 });
+    prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-1', status: BookingStatus.DELIVERED, serviceType: ServiceType.TRANSPORT, paymentMethod: PaymentMethod.CASH, estimatedPriceCents: 1000 });
 
     const res = await request(app).patch('/bookings/booking-1/status').set('Authorization', `Bearer ${driverToken}`)
       .send({ status: BookingStatus.COMPLETED });
@@ -182,7 +188,7 @@ describe('PATCH /bookings/:id/status (transitions)', () => {
   });
 
   it('finalise une course CASH une fois le paiement confirmé et crée la facture (B01)', async () => {
-    prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-1', status: BookingStatus.DELIVERED, paymentMethod: PaymentMethod.CASH, estimatedPriceCents: 1000, finalPriceCents: null, reference: 'MD-2026-ABCDEF' });
+    prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-1', status: BookingStatus.DELIVERED, serviceType: ServiceType.TRANSPORT, paymentMethod: PaymentMethod.CASH, estimatedPriceCents: 1000, finalPriceCents: null, reference: 'MD-2026-ABCDEF' });
     prismaMock.booking.update.mockResolvedValue({ id: 'booking-1', status: BookingStatus.COMPLETED, paymentStatus: PaymentStatus.PAID });
 
     const res = await request(app).patch('/bookings/booking-1/status').set('Authorization', `Bearer ${driverToken}`)
@@ -201,7 +207,7 @@ describe('PATCH /bookings/:id/status (transitions)', () => {
   });
 
   it('refuse de clôturer sans photo de livraison (B07)', async () => {
-    prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-1', status: BookingStatus.DELIVERED, paymentMethod: PaymentMethod.CASH, estimatedPriceCents: 1000, finalPriceCents: null, reference: 'MD-2026-ABCDEF' });
+    prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-1', status: BookingStatus.DELIVERED, serviceType: ServiceType.TRANSPORT, paymentMethod: PaymentMethod.CASH, estimatedPriceCents: 1000, finalPriceCents: null, reference: 'MD-2026-ABCDEF' });
     prismaMock.photo.count.mockResolvedValue(0);
 
     const res = await request(app).patch('/bookings/booking-1/status').set('Authorization', `Bearer ${driverToken}`)
@@ -214,7 +220,7 @@ describe('PATCH /bookings/:id/status (transitions)', () => {
 
   it('finalise une course carte payée par autorisation démo et crée la facture', async () => {
     prismaMock.booking.findFirst.mockResolvedValue({
-      id: 'booking-2', status: BookingStatus.DELIVERED, paymentMethod: PaymentMethod.CARD,
+      id: 'booking-2', status: BookingStatus.DELIVERED, serviceType: ServiceType.TRANSPORT, paymentMethod: PaymentMethod.CARD,
       estimatedPriceCents: 2000, finalPriceCents: null, reference: 'MD-2026-ABCDEF', stripePaymentIntentId: 'pi_demo_booking-2',
     });
     prismaMock.booking.update.mockResolvedValue({ id: 'booking-2', status: BookingStatus.COMPLETED });
@@ -462,5 +468,248 @@ describe('POST /bookings/:id/photos/upload', () => {
 
     expect(res.status).toBe(400);
     expect(prismaMock.photo.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /bookings/:id/convert-to-transport (B12)', () => {
+  it('convertit une réparation sur place en transport et historise via MissionEvent', async () => {
+    prismaMock.booking.findFirst.mockResolvedValue({
+      id: 'booking-1', driverId: 'driver-1', status: BookingStatus.DRIVER_ARRIVED, serviceType: ServiceType.ON_SITE_REPAIR,
+      issueType: IssueType.BATTERY, scheduledFor: null,
+    });
+    prismaMock.booking.update.mockResolvedValue({ id: 'booking-1', serviceType: ServiceType.TRANSPORT });
+
+    const res = await request(app).post('/bookings/booking-1/convert-to-transport').set('Authorization', `Bearer ${driverToken}`)
+      .send({ destination: parisDestination, distanceKm: 8 });
+
+    expect(res.status).toBe(200);
+    expect(prismaMock.booking.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ serviceType: ServiceType.TRANSPORT, distanceKm: 8, destinationAddress: parisDestination.address }),
+    }));
+    expect(prismaMock.missionEvent.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ bookingId: 'booking-1', type: 'SERVICE_TYPE_CONVERTED', authorId: 'driver-1' }),
+    }));
+  });
+
+  it('refuse de convertir une mission déjà en transport', async () => {
+    prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-1', driverId: 'driver-1', status: BookingStatus.DRIVER_ARRIVED, serviceType: ServiceType.TRANSPORT });
+    const res = await request(app).post('/bookings/booking-1/convert-to-transport').set('Authorization', `Bearer ${driverToken}`)
+      .send({ destination: parisDestination, distanceKm: 8 });
+    expect(res.status).toBe(409);
+    expect(prismaMock.$transaction).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /bookings/:id/appointment-change (modification de rendez-vous)', () => {
+  it('crée une demande pour une mission programmée', async () => {
+    prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-1', clientId: 'client-1', status: BookingStatus.SCHEDULED, scheduledFor: new Date(), driver: { pushToken: null } });
+    prismaMock.appointmentChangeRequest.findFirst.mockResolvedValue(null);
+    prismaMock.appointmentChangeRequest.create.mockResolvedValue({ id: 'change-1', status: 'PENDING' });
+
+    const proposedFor = new Date(Date.now() + 3600_000).toISOString();
+    const res = await request(app).post('/bookings/booking-1/appointment-change').set('Authorization', `Bearer ${clientToken}`).send({ proposedFor });
+
+    expect(res.status).toBe(201);
+    expect(prismaMock.appointmentChangeRequest.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ bookingId: 'booking-1', requestedById: 'client-1' }),
+    }));
+  });
+
+  it('refuse une deuxième demande tant qu’une est en attente', async () => {
+    prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-1', clientId: 'client-1', status: BookingStatus.SCHEDULED, scheduledFor: new Date() });
+    prismaMock.appointmentChangeRequest.findFirst.mockResolvedValue({ id: 'change-existing', status: 'PENDING' });
+
+    const res = await request(app).post('/bookings/booking-1/appointment-change').set('Authorization', `Bearer ${clientToken}`)
+      .send({ proposedFor: new Date(Date.now() + 3600_000).toISOString() });
+
+    expect(res.status).toBe(409);
+    expect(prismaMock.appointmentChangeRequest.create).not.toHaveBeenCalled();
+  });
+
+  it('le dépanneur accepte la demande et met à jour le rendez-vous', async () => {
+    prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-1', driverId: 'driver-1', client: { pushToken: null } });
+    const proposedFor = new Date(Date.now() + 3600_000);
+    prismaMock.appointmentChangeRequest.findFirst.mockResolvedValue({ id: 'change-1', bookingId: 'booking-1', status: 'PENDING', proposedFor });
+    prismaMock.booking.update.mockResolvedValue({ id: 'booking-1', scheduledFor: proposedFor });
+
+    const res = await request(app).post('/bookings/booking-1/appointment-change/change-1/accept').set('Authorization', `Bearer ${driverToken}`).send({});
+
+    expect(res.status).toBe(200);
+    expect(prismaMock.appointmentChangeRequest.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'change-1' }, data: expect.objectContaining({ status: 'ACCEPTED', decidedById: 'driver-1' }),
+    }));
+    expect(prismaMock.booking.update).toHaveBeenCalledWith({ where: { id: 'booking-1' }, data: { scheduledFor: proposedFor } });
+  });
+
+  it('le dépanneur refuse la demande sans toucher au rendez-vous existant', async () => {
+    prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-1', driverId: 'driver-1', client: { pushToken: null } });
+    prismaMock.appointmentChangeRequest.findFirst.mockResolvedValue({ id: 'change-1', bookingId: 'booking-1', status: 'PENDING' });
+    prismaMock.appointmentChangeRequest.update.mockResolvedValue({ id: 'change-1', status: 'REJECTED' });
+
+    const res = await request(app).post('/bookings/booking-1/appointment-change/change-1/reject').set('Authorization', `Bearer ${driverToken}`).send({});
+
+    expect(res.status).toBe(200);
+    expect(prismaMock.booking.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /bookings/:id/surcharges (grille §2.5)', () => {
+  it('refuse pour un compte client avec 403', async () => {
+    const res = await request(app).post('/bookings/booking-1/surcharges').set('Authorization', `Bearer ${clientToken}`).send({ category: 'DESTINATION_CHANGE' });
+    expect(res.status).toBe(403);
+  });
+
+  it('applique un supplément distance depuis la grille et cumule le total', async () => {
+    prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-1', driverId: 'driver-1', status: BookingStatus.IN_TRANSIT, estimatedPriceCents: 10_000, client: { pushToken: null } });
+    prismaMock.surcharge.create.mockResolvedValue({ id: 'surcharge-1', category: 'EXTRA_DISTANCE', amountCents: 600 });
+
+    const res = await request(app).post('/bookings/booking-1/surcharges').set('Authorization', `Bearer ${driverToken}`).send({ category: 'EXTRA_DISTANCE', extraKm: 3 });
+
+    expect(res.status).toBe(201);
+    expect(prismaMock.surcharge.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ category: 'EXTRA_DISTANCE', amountCents: 600, previousTotalCents: 10_000, newTotalCents: 10_600 }),
+    }));
+    expect(prismaMock.booking.update).toHaveBeenCalledWith({ where: { id: 'booking-1' }, data: { estimatedPriceCents: 10_600 } });
+  });
+
+  it('refuse un supplément sur une mission déjà clôturée', async () => {
+    prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-1', driverId: 'driver-1', status: BookingStatus.COMPLETED, estimatedPriceCents: 10_000 });
+    const res = await request(app).post('/bookings/booking-1/surcharges').set('Authorization', `Bearer ${driverToken}`).send({ category: 'DESTINATION_CHANGE' });
+    expect(res.status).toBe(409);
+    expect(prismaMock.surcharge.create).not.toHaveBeenCalled();
+  });
+
+  it('rejette une catégorie hors grille', async () => {
+    prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-1', driverId: 'driver-1', status: BookingStatus.IN_TRANSIT, estimatedPriceCents: 10_000 });
+    const res = await request(app).post('/bookings/booking-1/surcharges').set('Authorization', `Bearer ${driverToken}`).send({ category: 'DISCOUNT' });
+    expect(res.status).toBe(400);
+  });
+});
+
+describe('POST /bookings/:id/contact-attempts et /absence', () => {
+  it('enregistre une tentative de contact', async () => {
+    prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-1', driverId: 'driver-1' });
+    prismaMock.contactAttempt.create.mockResolvedValue({ id: 'attempt-1', method: 'CALL' });
+
+    const res = await request(app).post('/bookings/booking-1/contact-attempts').set('Authorization', `Bearer ${driverToken}`).send({ method: 'CALL' });
+
+    expect(res.status).toBe(201);
+    expect(prismaMock.contactAttempt.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ bookingId: 'booking-1', method: 'CALL', authorId: 'driver-1' }),
+    }));
+  });
+
+  it('déclare une absence, facture 50% du devis et annule la mission (B absence)', async () => {
+    prismaMock.booking.findFirst.mockResolvedValue({
+      id: 'booking-1', driverId: 'driver-1', status: BookingStatus.DRIVER_ARRIVED, estimatedPriceCents: 8_000, stripePaymentIntentId: 'pi_demo_booking-1', client: { pushToken: null },
+    });
+    prismaMock.clientAbsence.findUnique.mockResolvedValue(null);
+    prismaMock.booking.findUniqueOrThrow.mockResolvedValue({ id: 'booking-1', status: BookingStatus.CANCELLED, finalPriceCents: 4_000 });
+
+    const res = await request(app).post('/bookings/booking-1/absence').set('Authorization', `Bearer ${driverToken}`).send({ reason: 'Absent après deux appels' });
+
+    expect(res.status).toBe(200);
+    expect(prismaMock.clientAbsence.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ bookingId: 'booking-1', feeCents: 4_000 }),
+    }));
+    expect(prismaMock.booking.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: BookingStatus.CANCELLED, finalPriceCents: 4_000, paymentStatus: PaymentStatus.PAID }),
+    }));
+  });
+
+  it('refuse de déclarer une absence si le dépanneur n’est pas encore sur place', async () => {
+    prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-1', driverId: 'driver-1', status: BookingStatus.DRIVER_EN_ROUTE });
+    const res = await request(app).post('/bookings/booking-1/absence').set('Authorization', `Bearer ${driverToken}`).send({ reason: 'x' });
+    expect(res.status).toBe(409);
+    expect(prismaMock.clientAbsence.create).not.toHaveBeenCalled();
+  });
+
+  it('un deuxième appel est idempotent (ClientAbsence.bookingId unique)', async () => {
+    prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-1', driverId: 'driver-1', status: BookingStatus.DRIVER_ARRIVED, estimatedPriceCents: 8_000 });
+    prismaMock.clientAbsence.findUnique.mockResolvedValue({ id: 'absence-1', bookingId: 'booking-1' });
+    prismaMock.booking.findUniqueOrThrow.mockResolvedValue({ id: 'booking-1', status: BookingStatus.CANCELLED });
+
+    const res = await request(app).post('/bookings/booking-1/absence').set('Authorization', `Bearer ${driverToken}`).send({ reason: 'x' });
+
+    expect(res.status).toBe(200);
+    expect(prismaMock.clientAbsence.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /bookings/:id/post-pickup-cancellation (§2.6)', () => {
+  it('le client soumet une demande après la prise en charge', async () => {
+    prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-1', clientId: 'client-1', status: BookingStatus.IN_TRANSIT, driver: { pushToken: null } });
+    prismaMock.postPickupCancellationRequest.findFirst.mockResolvedValue(null);
+    prismaMock.postPickupCancellationRequest.create.mockResolvedValue({ id: 'req-1', status: 'PENDING' });
+
+    const res = await request(app).post('/bookings/booking-1/post-pickup-cancellation').set('Authorization', `Bearer ${clientToken}`).send({ reason: 'Je préfère un autre garage' });
+
+    expect(res.status).toBe(201);
+    expect(prismaMock.postPickupCancellationRequest.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ bookingId: 'booking-1', requestedById: 'client-1' }),
+    }));
+  });
+
+  it('refuse la demande si la moto n’a pas encore été prise en charge', async () => {
+    prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-1', clientId: 'client-1', status: BookingStatus.ASSIGNED });
+    const res = await request(app).post('/bookings/booking-1/post-pickup-cancellation').set('Authorization', `Bearer ${clientToken}`).send({});
+    expect(res.status).toBe(409);
+  });
+
+  it('le dépanneur accepte, fixe une nouvelle destination et applique le supplément de la grille', async () => {
+    prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-1', driverId: 'driver-1', estimatedPriceCents: 10_000, client: { pushToken: null } });
+    prismaMock.postPickupCancellationRequest.findFirst.mockResolvedValue({ id: 'req-1', bookingId: 'booking-1', status: 'PENDING' });
+    prismaMock.booking.findUniqueOrThrow.mockResolvedValue({ id: 'booking-1', destinationAddress: parisDestination.address });
+
+    const res = await request(app).post('/bookings/booking-1/post-pickup-cancellation/req-1/accept').set('Authorization', `Bearer ${driverToken}`).send({ destination: parisDestination });
+
+    expect(res.status).toBe(200);
+    expect(prismaMock.surcharge.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ category: 'DESTINATION_CHANGE', amountCents: 1_500, previousTotalCents: 10_000, newTotalCents: 11_500 }),
+    }));
+    expect(prismaMock.booking.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ destinationAddress: parisDestination.address, estimatedPriceCents: 11_500 }),
+    }));
+  });
+
+  it('le dépanneur refuse la demande sans changer la destination', async () => {
+    prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-1', driverId: 'driver-1', client: { pushToken: null } });
+    prismaMock.postPickupCancellationRequest.findFirst.mockResolvedValue({ id: 'req-1', bookingId: 'booking-1', status: 'PENDING' });
+    prismaMock.postPickupCancellationRequest.update.mockResolvedValue({ id: 'req-1', status: 'REJECTED' });
+
+    const res = await request(app).post('/bookings/booking-1/post-pickup-cancellation/req-1/reject').set('Authorization', `Bearer ${driverToken}`).send({});
+
+    expect(res.status).toBe(200);
+    expect(prismaMock.booking.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /bookings/:id/payment-fallback (bascule espèces → carte)', () => {
+  it('crée une autorisation carte et bascule le moyen de paiement', async () => {
+    prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-1', clientId: 'client-1', paymentMethod: PaymentMethod.CASH, status: BookingStatus.DELIVERED, estimatedPriceCents: 7_000, finalPriceCents: null });
+
+    const res = await request(app).post('/bookings/booking-1/payment-fallback').set('Authorization', `Bearer ${clientToken}`).send({});
+
+    expect(res.status).toBe(200);
+    expect(res.body.clientSecret).toBeDefined();
+    expect(prismaMock.booking.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ paymentMethod: PaymentMethod.CARD, paymentStatus: PaymentStatus.PENDING }),
+    }));
+  });
+
+  it('refuse la bascule si la mission est déjà réglée par carte', async () => {
+    prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-1', clientId: 'client-1', paymentMethod: PaymentMethod.CARD, status: BookingStatus.DELIVERED });
+    const res = await request(app).post('/bookings/booking-1/payment-fallback').set('Authorization', `Bearer ${clientToken}`).send({});
+    expect(res.status).toBe(409);
+  });
+
+  it('confirme le paiement de bascule une fois l’autorisation prête', async () => {
+    prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-1', clientId: 'client-1', stripePaymentIntentId: 'pi_demo_booking-1' });
+    prismaMock.booking.update.mockResolvedValue({ id: 'booking-1', paymentStatus: PaymentStatus.AUTHORIZED });
+
+    const res = await request(app).post('/bookings/booking-1/payment-fallback/confirmed').set('Authorization', `Bearer ${clientToken}`).send({});
+
+    expect(res.status).toBe(200);
+    expect(prismaMock.booking.update).toHaveBeenCalledWith({ where: { id: 'booking-1' }, data: { paymentStatus: PaymentStatus.AUTHORIZED } });
   });
 });
