@@ -141,9 +141,10 @@ export function ConvertToTransportScreen({ navigation, route }: Props<'ConvertTo
   const [loading, setLoading] = useState(false);
   const [garages, setGarages] = useState<Awaited<ReturnType<typeof api.garages>>>([]);
   useEffect(() => { api.garages().then(setGarages).catch(() => undefined); }, []);
+  const km = Number(distanceKm.replace(',', '.'));
+  const validKm = Number.isFinite(km) && km > 0;
   async function confirm() {
-    const km = Number(distanceKm.replace(',', '.'));
-    if (!destination || !Number.isFinite(km) || km <= 0) return;
+    if (!destination || !validKm) return;
     try {
       setLoading(true);
       await api.convertToTransport(route.params.bookingId, destination, km);
@@ -154,7 +155,7 @@ export function ConvertToTransportScreen({ navigation, route }: Props<'ConvertTo
   return <AppScreen><Header title="Transporter la moto" subtitle="Choisissez la destination" onBack={() => navigation.goBack()} />
     {garages.map((g) => <OptionCard key={g.id} icon="business" title={g.name} subtitle={g.address} selected={destination?.address === g.address} onPress={() => setDestination({ address: g.address, latitude: g.latitude, longitude: g.longitude })} />)}
     <Field label="Distance estimée (km)" value={distanceKm} onChangeText={setDistanceKm} keyboardType="numeric" icon="navigate" />
-    <PrimaryButton title="Confirmer le transport" onPress={confirm} loading={loading} disabled={!destination} />
+    <PrimaryButton title="Confirmer le transport" onPress={confirm} loading={loading} disabled={!destination || !validKm} />
   </AppScreen>;
 }
 
@@ -211,11 +212,12 @@ export function ApplySurchargeScreen({ navigation, route }: Props<'ApplySurcharg
   const [category, setCategory] = useState<typeof surchargeCategories[number]['value'] | null>(null);
   const [extraKm, setExtraKm] = useState('2');
   const [loading, setLoading] = useState(false);
+  const km = Number(extraKm.replace(',', '.'));
+  const validKm = category !== 'EXTRA_DISTANCE' || (Number.isFinite(km) && km > 0);
   async function apply() {
-    if (!category) return;
+    if (!category || !validKm) return;
     try {
       setLoading(true);
-      const km = Number(extraKm.replace(',', '.'));
       await api.applySurcharge(route.params.bookingId, category, category === 'EXTRA_DISTANCE' ? km : undefined);
       Alert.alert('Supplément appliqué', 'Le client en a été informé.', [{ text: 'OK', onPress: () => navigation.goBack() }]);
     } catch (e) { Alert.alert('Envoi impossible', e instanceof Error ? e.message : 'Réessayez.'); }
@@ -224,7 +226,7 @@ export function ApplySurchargeScreen({ navigation, route }: Props<'ApplySurcharg
   return <AppScreen><Header title="Ajouter un supplément" subtitle="Selon la grille tarifaire" onBack={() => navigation.goBack()} />
     {surchargeCategories.map((c) => <OptionCard key={c.value} icon={c.icon} title={c.title} subtitle={c.subtitle} selected={category === c.value} onPress={() => setCategory(c.value)} />)}
     {category === 'EXTRA_DISTANCE' ? <Field label="Kilomètres supplémentaires" value={extraKm} onChangeText={setExtraKm} keyboardType="numeric" icon="navigate" /> : null}
-    <PrimaryButton title="Appliquer le supplément" onPress={apply} loading={loading} disabled={!category} />
+    <PrimaryButton title="Appliquer le supplément" onPress={apply} loading={loading} disabled={!category || !validKm} />
   </AppScreen>;
 }
 
@@ -249,7 +251,7 @@ export function PostPickupCancellationDecisionScreen({ navigation, route }: Prop
     catch (e) { Alert.alert('Erreur', e instanceof Error ? e.message : 'Réessayez.'); }
     finally { setLoading(false); }
   }
-  if (!booking || !request) return <AppScreen><Text style={ui.muted}>Aucune demande en attente.</Text></AppScreen>;
+  if (!booking || !request) return <AppScreen><Header title="Demande du client" onBack={() => navigation.goBack()} /><Text style={ui.muted}>Aucune demande en attente.</Text></AppScreen>;
   return <AppScreen><Header title="Demande du client" subtitle="Annulation après prise en charge" onBack={() => navigation.goBack()} />
     <Card><Text style={ui.optionTitle}>{booking.client?.firstName ?? 'Le client'} souhaite annuler</Text>{request.reason ? <Text style={ui.muted}>{request.reason}</Text> : null}</Card>
     <SectionTitle>Accepter avec une nouvelle destination</SectionTitle>
