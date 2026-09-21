@@ -163,16 +163,23 @@ bookingsRouter.patch('/:id/status', asyncHandler(async (req, res) => {
 }));
 
 // Un seul dépanneur existe : un refus ne relance pas de recherche automatique. Le dépanneur propose
-// à la place un créneau ferme (30 min / 1h / 1h30), que le client devra accepter ou refuser.
+// à la place un créneau ferme (30 min / 1h / 1h30), que le client devra accepter ou refuser. Ce même
+// endpoint sert aussi à formaliser une proposition après un conflit d'horaire (voir GET
+// /driver/conflicts) : dans ce cas la demande n'est pas encore assignée (SEARCHING/SCHEDULED,
+// driverId nul), le dépanneur ayant simplement lu la réponse du client dans le chat.
 bookingsRouter.post('/:id/refuse', asyncHandler(async (req, res) => {
   if (req.auth!.role !== UserRole.DRIVER) return res.status(403).end();
   const { delayMinutes } = z.object({ delayMinutes: z.union([z.literal(30), z.literal(60), z.literal(90)]) }).parse(req.body);
-  const booking = await authorizedBooking(String(req.params.id), req.auth!.userId);
-  if (!booking || booking.status !== BookingStatus.ASSIGNED) return res.status(409).json({ error: 'Mission non refusable' });
+  const booking = await prisma.booking.findUnique({ where: { id: String(req.params.id) } });
+  const eligible = Boolean(booking) && (
+    (booking!.status === BookingStatus.ASSIGNED && booking!.driverId === req.auth!.userId)
+    || ((booking!.status === BookingStatus.SEARCHING || booking!.status === BookingStatus.SCHEDULED) && !booking!.driverId)
+  );
+  if (!eligible) return res.status(409).json({ error: 'Mission non refusable' });
   const proposedFor = new Date(Date.now() + delayMinutes * 60_000);
   const updated = await prisma.booking.update({
-    where: { id: booking.id },
-    data: { status: BookingStatus.PROPOSED, proposedFor, retryAfter: null },
+    where: { id: booking!.id },
+    data: { driverId: req.auth!.userId, status: BookingStatus.PROPOSED, proposedFor, retryAfter: null },
   });
   res.json(updated);
 }));

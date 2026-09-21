@@ -15,13 +15,17 @@ type Props<T extends keyof RootStackParamList> = NativeStackScreenProps<RootStac
 type Dashboard = Awaited<ReturnType<typeof api.driverDashboard>>;
 
 export function DriverHomeScreen({ navigation }: Props<'DriverHome'>) {
-  const { user } = useAuth(); const [dashboard, setDashboard] = useState<Dashboard | null>(null); const [online, setOnline] = useState(Boolean(user?.isAvailable)); const [loading, setLoading] = useState(false);
-  const load = useCallback(() => api.driverDashboard().then((data) => { setDashboard(data); setOnline(Boolean(data.user.isAvailable)); }), []);
+  const { user } = useAuth(); const [dashboard, setDashboard] = useState<Dashboard | null>(null); const [online, setOnline] = useState(Boolean(user?.isAvailable)); const [loading, setLoading] = useState(false); const [conflicts, setConflicts] = useState<Booking[]>([]);
+  const load = useCallback(() => Promise.all([
+    api.driverDashboard().then((data) => { setDashboard(data); setOnline(Boolean(data.user.isAvailable)); }),
+    api.driverConflicts().then(setConflicts),
+  ]), []);
   useEffect(() => { void load(); const timer = setInterval(load, 5000); return () => clearInterval(timer); }, [load]);
   async function toggle(value: boolean) { try { setLoading(true); setOnline(value); await api.driverAvailability(value); await load(); } catch (e) { setOnline(!value); Alert.alert('Impossible', e instanceof Error ? e.message : 'Réessayez.'); } finally { setLoading(false); } }
   const active = dashboard?.active;
   return <AppScreen><View style={styles.top}><Brand compact /><Pill label={online ? 'EN LIGNE' : 'HORS LIGNE'} tone={online ? 'green' : 'red'} /></View><View><Text style={styles.greeting}>Bonjour {user?.firstName ?? 'Mehdi'}</Text><Text style={ui.muted}>Espace professionnel</Text></View>
     <ToggleRow title={online ? 'Vous êtes disponible' : 'Vous êtes indisponible'} subtitle={online ? 'Vous pouvez recevoir une nouvelle mission' : 'Activez-vous pour recevoir les demandes'} value={online} onValueChange={toggle} />
+    {conflicts.length ? <Card onPress={() => navigation.navigate('DriverConflicts')} style={{ borderColor: colors.red }}><View style={styles.between}><Pill label={`${conflicts.length} DEMANDE${conflicts.length > 1 ? 'S' : ''} EN CONFLIT`} tone="red" /><Ionicons name="chevron-forward" size={22} color={colors.text} /></View><Text style={ui.muted}>Un ou plusieurs clients attendent que vous leur proposiez un créneau.</Text></Card> : null}
     {active ? <ActiveMission booking={active} navigation={navigation} /> : <View style={styles.waiting}><View style={styles.onlineCircle}><Ionicons name={online ? 'radio' : 'pause'} size={48} color={online ? colors.green : colors.muted} /></View><Text style={styles.waitTitle}>{online ? 'En attente d’une mission' : 'Vous êtes hors ligne'}</Text><Text style={styles.center}>{online ? 'La prochaine demande vous sera envoyée automatiquement.' : 'Aucune nouvelle demande ne sera envoyée.'}</Text></View>}
     <View style={styles.stats}><Card style={styles.stat}><Text style={ui.muted}>Ce mois</Text><Money cents={dashboard?.stats.monthRevenueCents ?? 0} size={22} /></Card><Card style={styles.stat}><Text style={ui.muted}>Missions</Text><Text style={styles.statNumber}>{dashboard?.stats.completedCount ?? 0}</Text></Card></View>
     <BottomMenu navigation={navigation} role="driver" active="home" />
@@ -106,6 +110,19 @@ export function DriverUnavailabilityScreen({ navigation }: Props<'DriverUnavaila
     {oneTime.length ? oneTime.map((item) => <Card key={item.id}><View style={styles.between}><Text style={ui.optionTitle}>{item.startAt ? new Date(item.startAt).toLocaleString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}</Text><Pressable onPress={() => remove(item.id)}><Ionicons name="trash" size={20} color={colors.red} /></Pressable></View>{item.endAt ? <Text style={ui.muted}>Jusqu’à {new Date(item.endAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</Text> : null}</Card>) : <Text style={ui.muted}>Aucun créneau ponctuel.</Text>}
     <SectionTitle>Créneaux récurrents</SectionTitle>
     {recurring.length ? recurring.map((item) => <Card key={item.id}><View style={styles.between}><Text style={ui.optionTitle}>{weekdays.find((w) => w.value === item.weekday)?.label ?? ''} · {item.startTime}–{item.endTime}</Text><Pressable onPress={() => remove(item.id)}><Ionicons name="trash" size={20} color={colors.red} /></Pressable></View></Card>) : <Text style={ui.muted}>Aucun créneau récurrent.</Text>}
+  </AppScreen>;
+}
+
+export function DriverConflictsScreen({ navigation }: Props<'DriverConflicts'>) {
+  const [items, setItems] = useState<Booking[]>([]);
+  const load = useCallback(() => { api.driverConflicts().then(setItems); }, []);
+  useEffect(() => { void load(); const timer = setInterval(load, 10000); return () => clearInterval(timer); }, [load]);
+  return <AppScreen><Header title="Demandes en conflit" subtitle="Le client a été prévenu, lisez sa réponse" onBack={() => navigation.goBack()} />
+    {items.length ? items.map((b) => <Card key={b.id}><View style={styles.between}><Text style={ui.optionTitle}>{issueLabel(b.issueType)}</Text><Money cents={b.estimatedPriceCents} size={19} /></View><Text style={ui.muted}>{b.pickupAddress}</Text><Text style={ui.muted}>{b.client?.firstName ?? 'Client'}</Text>
+        <SecondaryButton title="Voir la conversation" icon="chatbubble" onPress={() => navigation.navigate('Chat', { bookingId: b.id })} />
+        <PrimaryButton title="Proposer un créneau" onPress={() => navigation.navigate('RefusalDelay', { bookingId: b.id })} />
+      </Card>)
+      : <Empty icon="chatbubbles-outline" title="Aucun conflit en attente" text="Vous serez prévenu ici si une nouvelle demande chevauche une mission ou une indisponibilité." />}
   </AppScreen>;
 }
 

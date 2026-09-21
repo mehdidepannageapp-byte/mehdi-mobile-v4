@@ -102,4 +102,5 @@ export const api = {
   unavailabilities: () => request<import('../types').Unavailability[]>('/driver/unavailability'),
   createUnavailability: (data: Omit<import('../types').Unavailability, 'id'>) => request<import('../types').Unavailability>('/driver/unavailability', { method: 'POST', body: JSON.stringify(data) }),
   deleteUnavailability: (id: string) => request<void>(`/driver/unavailability/${id}`, { method: 'DELETE' }),
+  driverConflicts: () => request<import('../types').Booking[]>('/driver/conflicts'),
 };

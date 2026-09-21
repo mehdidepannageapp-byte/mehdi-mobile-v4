@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const prismaMock = vi.hoisted(() => ({
   unavailability: { findMany: vi.fn(), create: vi.fn(), findFirst: vi.fn(), delete: vi.fn() },
+  booking: { findMany: vi.fn() },
 }));
 
 vi.mock('../config/prisma.js', () => ({ prisma: prismaMock }));
@@ -11,6 +12,8 @@ vi.mock('../config/prisma.js', () => ({ prisma: prismaMock }));
 const { driverRouter } = await import('./driver.js');
 const { errorHandler } = await import('../middleware/errors.js');
 const { signToken } = await import('../middleware/auth.js');
+const { CONFLICT_MESSAGE } = await import('../services/assignment.js');
+const { BookingStatus } = await import('@prisma/client');
 
 function buildApp() {
   const app = express();
@@ -88,6 +91,29 @@ describe('POST /driver/unavailability', () => {
     const res = await request(app).post('/driver/unavailability').set('Authorization', `Bearer ${driverToken}`)
       .send({ type: 'RECURRING', weekday: 2, startTime: '8h00', endTime: '12:00' });
     expect(res.status).toBe(400);
+  });
+});
+
+describe('GET /driver/conflicts', () => {
+  it('refuse un compte client avec 403', async () => {
+    const res = await request(app).get('/driver/conflicts').set('Authorization', `Bearer ${clientToken}`);
+    expect(res.status).toBe(403);
+  });
+
+  it('liste les demandes non assignées ayant reçu le message automatique de conflit', async () => {
+    prismaMock.booking.findMany.mockResolvedValue([{ id: 'booking-1', status: BookingStatus.SEARCHING }]);
+    const res = await request(app).get('/driver/conflicts').set('Authorization', `Bearer ${driverToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([{ id: 'booking-1', status: BookingStatus.SEARCHING }]);
+    expect(prismaMock.booking.findMany).toHaveBeenCalledWith({
+      where: {
+        status: { in: [BookingStatus.SEARCHING, BookingStatus.SCHEDULED] },
+        messages: { some: { senderId: 'driver-1', body: CONFLICT_MESSAGE } },
+      },
+      include: { client: true, vehicle: true },
+      orderBy: { updatedAt: 'desc' },
+    });
   });
 });
 

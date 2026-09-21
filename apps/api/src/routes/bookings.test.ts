@@ -214,14 +214,20 @@ describe('POST /bookings/:id/refuse', () => {
     expect(prismaMock.booking.update).not.toHaveBeenCalled();
   });
 
-  it('refuse si la mission n’est pas au statut ASSIGNED', async () => {
-    prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-1', status: BookingStatus.SEARCHING });
+  it('refuse si la mission est déjà terminée ou annulée', async () => {
+    prismaMock.booking.findUnique.mockResolvedValue({ id: 'booking-1', status: BookingStatus.CANCELLED, driverId: null });
+    const res = await request(app).post('/bookings/booking-1/refuse').set('Authorization', `Bearer ${driverToken}`).send({ delayMinutes: 30 });
+    expect(res.status).toBe(409);
+  });
+
+  it('refuse une mission SEARCHING déjà réservée à un autre dépanneur', async () => {
+    prismaMock.booking.findUnique.mockResolvedValue({ id: 'booking-1', status: BookingStatus.SEARCHING, driverId: 'un-autre-driver' });
     const res = await request(app).post('/bookings/booking-1/refuse').set('Authorization', `Bearer ${driverToken}`).send({ delayMinutes: 30 });
     expect(res.status).toBe(409);
   });
 
   it('propose un créneau ferme et passe la course en PROPOSED, sans relancer de recherche', async () => {
-    prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-1', status: BookingStatus.ASSIGNED, driverId: 'driver-1' });
+    prismaMock.booking.findUnique.mockResolvedValue({ id: 'booking-1', status: BookingStatus.ASSIGNED, driverId: 'driver-1' });
     prismaMock.booking.update.mockResolvedValue({ id: 'booking-1', status: BookingStatus.PROPOSED });
 
     const before = Date.now();
@@ -236,6 +242,19 @@ describe('POST /bookings/:id/refuse', () => {
     expect(call.data.retryAfter).toBeNull();
     expect(call.data.proposedFor.getTime()).toBeGreaterThanOrEqual(before + 60 * 60_000);
     expect(call.data.proposedFor.getTime()).toBeLessThanOrEqual(after + 60 * 60_000);
+  });
+
+  it('formalise une proposition pour une demande en conflit non encore assignée (depuis /driver/conflicts)', async () => {
+    prismaMock.booking.findUnique.mockResolvedValue({ id: 'booking-2', status: BookingStatus.SEARCHING, driverId: null });
+    prismaMock.booking.update.mockResolvedValue({ id: 'booking-2', status: BookingStatus.PROPOSED });
+
+    const res = await request(app).post('/bookings/booking-2/refuse').set('Authorization', `Bearer ${driverToken}`).send({ delayMinutes: 30 });
+
+    expect(res.status).toBe(200);
+    expect(prismaMock.booking.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'booking-2' },
+      data: expect.objectContaining({ driverId: 'driver-1', status: BookingStatus.PROPOSED }),
+    }));
   });
 });
 

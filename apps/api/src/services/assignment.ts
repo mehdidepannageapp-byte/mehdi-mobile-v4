@@ -12,7 +12,7 @@ const ACTIVE_MISSION_STATUSES: BookingStatus[] = [
   BookingStatus.IN_TRANSIT,
 ];
 const STALE_MISSION_MINUTES = 5;
-const CONFLICT_MESSAGE = 'On n’arrive pas à se prévoir un rdv, là je suis en mission, vers quelle heure ça vous arrangerait ?';
+export const CONFLICT_MESSAGE = 'On n’arrive pas à se prévoir un rdv, là je suis en mission, vers quelle heure ça vous arrangerait ?';
 
 /** Le dépanneur a-t-il déclaré une indisponibilité (mission hors app) au moment visé ? */
 async function hasUnavailabilityConflict(driverId: string, at: Date): Promise<boolean> {

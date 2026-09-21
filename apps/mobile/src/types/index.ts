@@ -31,7 +31,7 @@ export type RootStackParamList = {
   DriverArrival: { bookingId: string }; PickupPhotos: { bookingId: string }; Transport: { bookingId: string };
   Delivery: { bookingId: string }; MissionSummary: { bookingId: string }; DriverHistory: undefined;
   DriverEarnings: undefined; DriverProfile: undefined; DriverDocuments: undefined;
-  RefusalDelay: { bookingId: string }; DriverUnavailability: undefined;
+  RefusalDelay: { bookingId: string }; DriverUnavailability: undefined; DriverConflicts: undefined;
 };
 
 export type BookingDraft = {

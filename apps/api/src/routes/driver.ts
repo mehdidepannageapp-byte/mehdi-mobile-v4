@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../config/prisma.js';
 import { requireAuth, requireDriver } from '../middleware/auth.js';
+import { CONFLICT_MESSAGE } from '../services/assignment.js';
 import { asyncHandler } from '../utils/async-handler.js';
 
 export const driverRouter = Router();
@@ -28,6 +29,20 @@ driverRouter.get('/dashboard', asyncHandler(async (req, res) => {
 driverRouter.get('/pending', asyncHandler(async (req, res) => {
   if (req.auth!.role !== UserRole.DRIVER) return res.status(403).end();
   res.json(await prisma.booking.findFirst({ where: { driverId: req.auth!.userId, status: BookingStatus.ASSIGNED }, include: { client: true, vehicle: true }, orderBy: { updatedAt: 'desc' } }));
+}));
+
+// Demandes non assignées pour lesquelles le message automatique de conflit d'horaire a été
+// envoyé (voir services/assignment.ts) : le dépanneur peut lire la réponse du client dans le
+// chat puis lui proposer un créneau ferme via l'écran habituel (POST /bookings/:id/refuse).
+driverRouter.get('/conflicts', asyncHandler(async (req, res) => {
+  res.json(await prisma.booking.findMany({
+    where: {
+      status: { in: [BookingStatus.SEARCHING, BookingStatus.SCHEDULED] },
+      messages: { some: { senderId: req.auth!.userId, body: CONFLICT_MESSAGE } },
+    },
+    include: { client: true, vehicle: true },
+    orderBy: { updatedAt: 'desc' },
+  }));
 }));
 
 // Indisponibilités déclarées par le dépanneur pour des missions prises hors application.
