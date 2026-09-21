@@ -45,6 +45,17 @@ driverRouter.get('/conflicts', asyncHandler(async (req, res) => {
   }));
 }));
 
+// Demandes de modification de rendez-vous en attente : comme /conflicts, une mission SCHEDULED
+// n'a pas encore de driverId tant que l'assignation automatique n'a pas eu lieu, donc on ne peut
+// pas filtrer par driverId (dépanneur unique).
+driverRouter.get('/appointment-changes', asyncHandler(async (req, res) => {
+  res.json(await prisma.booking.findMany({
+    where: { appointmentChangeRequests: { some: { status: 'PENDING' } } },
+    include: { client: true, vehicle: true, appointmentChangeRequests: { where: { status: 'PENDING' }, orderBy: { createdAt: 'desc' } } },
+    orderBy: { updatedAt: 'desc' },
+  }));
+}));
+
 // Indisponibilités déclarées par le dépanneur pour des missions prises hors application.
 // Ponctuel : plage startAt/endAt précise. Récurrent : jour de semaine + plage "HH:mm",
 // actif jusqu'à suppression manuelle (voir aussi services/assignment.ts).
