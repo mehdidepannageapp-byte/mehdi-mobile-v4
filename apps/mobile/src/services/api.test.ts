@@ -91,3 +91,100 @@ describe('rafraîchissement automatique du jeton', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
+
+// Batch 4/5 : chaque nouveau flux mobile doit appeler le bon endpoint avec la bonne méthode et le
+// bon corps de requête. Ces tests couvrent la couche données (api.ts) des nouveaux écrans ; le
+// rendu des écrans eux-mêmes n'est pas testable ici (voir test-mocks/react-native.ts, qui ne
+// fournit que Platform — pas de rendu de composants React Native dans cette suite Vitest/jsdom).
+describe('nouveaux flux (garages, réparation sur place, rendez-vous, suppléments, absence, annulation, paiement)', () => {
+  it('liste les garages partenaires', async () => {
+    fetchMock.mockResolvedValue(jsonResponse([{ id: 'g1', name: 'Garage A' }]));
+    await api.garages();
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/garages');
+  });
+
+  it('convertit une réparation sur place en transport', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ id: 'b1' }));
+    const destination = { address: '1 rue X', latitude: 48.8, longitude: 2.3 };
+    await api.convertToTransport('b1', destination, 8);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/bookings/b1/convert-to-transport'),
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ destination, distanceKm: 8 }) }),
+    );
+  });
+
+  it('envoie une demande de modification de rendez-vous', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ id: 'change-1' }));
+    await api.requestAppointmentChange('b1', '2026-10-01T10:00:00.000Z');
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/bookings/b1/appointment-change'),
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ proposedFor: '2026-10-01T10:00:00.000Z' }) }),
+    );
+  });
+
+  it('accepte et refuse une demande de modification de rendez-vous', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ id: 'b1' }));
+    await api.acceptAppointmentChange('b1', 'change-1');
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/bookings/b1/appointment-change/change-1/accept'), expect.objectContaining({ method: 'POST' }));
+    await api.rejectAppointmentChange('b1', 'change-1');
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/bookings/b1/appointment-change/change-1/reject'), expect.objectContaining({ method: 'POST' }));
+  });
+
+  it('liste les missions avec une demande de modification en attente côté dépanneur', async () => {
+    fetchMock.mockResolvedValue(jsonResponse([]));
+    await api.driverAppointmentChanges();
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/driver/appointment-changes');
+  });
+
+  it('applique un supplément avec la catégorie et la distance', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ id: 's1' }));
+    await api.applySurcharge('b1', 'EXTRA_DISTANCE', 3);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/bookings/b1/surcharges'),
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ category: 'EXTRA_DISTANCE', extraKm: 3 }) }),
+    );
+  });
+
+  it('enregistre une tentative de contact', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ id: 'attempt-1' }));
+    await api.contactAttempt('b1', 'CALL');
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/bookings/b1/contact-attempts'),
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ method: 'CALL', note: undefined }) }),
+    );
+  });
+
+  it('déclare une absence avec le motif', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ id: 'b1' }));
+    await api.declareAbsence('b1', 'Client injoignable');
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/bookings/b1/absence'),
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ reason: 'Client injoignable' }) }),
+    );
+  });
+
+  it('soumet, accepte et refuse une demande d’annulation post-prise en charge', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ id: 'req-1' }));
+    await api.requestPostPickupCancellation('b1', 'Changement de plan');
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/bookings/b1/post-pickup-cancellation'),
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ reason: 'Changement de plan' }) }),
+    );
+    const destination = { address: '1 rue X', latitude: 48.8, longitude: 2.3 };
+    await api.acceptPostPickupCancellation('b1', 'req-1', destination);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/bookings/b1/post-pickup-cancellation/req-1/accept'),
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ destination }) }),
+    );
+    await api.rejectPostPickupCancellation('b1', 'req-1');
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/bookings/b1/post-pickup-cancellation/req-1/reject'), expect.objectContaining({ method: 'POST' }));
+  });
+
+  it('crée puis confirme un paiement de bascule espèces vers carte', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ clientSecret: 'demo_secret_b1' }));
+    await api.paymentFallback('b1');
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/bookings/b1/payment-fallback'), expect.objectContaining({ method: 'POST' }));
+    await api.confirmPaymentFallback('b1');
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/bookings/b1/payment-fallback/confirmed'), expect.objectContaining({ method: 'POST' }));
+  });
+});

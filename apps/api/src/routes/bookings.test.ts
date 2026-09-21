@@ -102,6 +102,34 @@ describe('POST /bookings (création)', () => {
     const data = prismaMock.booking.create.mock.calls[0][0].data;
     expect(data.status).toBe(BookingStatus.PAYMENT_PENDING);
   });
+
+  // B12 : réparation sur place, sans destination ni distance requises.
+  it('crée une réparation sur place sans destination, avec une distance nulle', async () => {
+    prismaMock.booking.create.mockResolvedValue({ id: 'booking-3', status: BookingStatus.SEARCHING, serviceType: ServiceType.ON_SITE_REPAIR });
+
+    const { destination: _destination, distanceKm: _distanceKm, ...payload } = validBookingPayload({ issueType: IssueType.BATTERY, serviceType: ServiceType.ON_SITE_REPAIR });
+    const res = await request(app).post('/bookings').set('Authorization', `Bearer ${clientToken}`).send(payload);
+
+    expect(res.status).toBe(201);
+    const data = prismaMock.booking.create.mock.calls[0][0].data;
+    expect(data.serviceType).toBe(ServiceType.ON_SITE_REPAIR);
+    expect(data.destinationAddress).toBeNull();
+    expect(data.distanceKm).toBeNull();
+  });
+
+  it('refuse une réparation sur place pour une panne non éligible (ENGINE)', async () => {
+    const { destination: _destination, distanceKm: _distanceKm, ...payload } = validBookingPayload({ issueType: IssueType.ENGINE, serviceType: ServiceType.ON_SITE_REPAIR });
+    const res = await request(app).post('/bookings').set('Authorization', `Bearer ${clientToken}`).send(payload);
+    expect(res.status).toBe(400);
+    expect(prismaMock.booking.create).not.toHaveBeenCalled();
+  });
+
+  it('refuse un transport sans destination ni distance', async () => {
+    const { destination: _destination, distanceKm: _distanceKm, ...payload } = validBookingPayload({ serviceType: ServiceType.TRANSPORT });
+    const res = await request(app).post('/bookings').set('Authorization', `Bearer ${clientToken}`).send(payload);
+    expect(res.status).toBe(400);
+    expect(prismaMock.booking.create).not.toHaveBeenCalled();
+  });
 });
 
 describe('GET /bookings (liste et pagination)', () => {
@@ -231,6 +259,32 @@ describe('PATCH /bookings/:id/status (transitions)', () => {
 
     expect(res.status).toBe(200);
     expect(prismaMock.invoice.upsert).toHaveBeenCalledTimes(1);
+  });
+
+  it('une réparation sur place se clôture directement depuis DRIVER_ARRIVED, sans photo de livraison (B12)', async () => {
+    prismaMock.booking.findFirst.mockResolvedValue({
+      id: 'booking-3', status: BookingStatus.DRIVER_ARRIVED, serviceType: ServiceType.ON_SITE_REPAIR, paymentMethod: PaymentMethod.CASH,
+      estimatedPriceCents: 5_500, finalPriceCents: null, reference: 'MD-2026-ABCDEF',
+    });
+    prismaMock.booking.update.mockResolvedValue({ id: 'booking-3', status: BookingStatus.COMPLETED });
+    prismaMock.photo.count.mockResolvedValue(0);
+
+    const res = await request(app).patch('/bookings/booking-3/status').set('Authorization', `Bearer ${driverToken}`)
+      .send({ status: BookingStatus.COMPLETED, cashReceived: true });
+
+    expect(res.status).toBe(200);
+    expect(prismaMock.photo.count).not.toHaveBeenCalled();
+    expect(prismaMock.invoice.upsert).toHaveBeenCalledTimes(1);
+  });
+
+  it('une réparation sur place ne peut pas suivre les étapes de transport (PICKED_UP) (B12)', async () => {
+    prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-3', status: BookingStatus.DRIVER_ARRIVED, serviceType: ServiceType.ON_SITE_REPAIR, paymentMethod: PaymentMethod.CASH, estimatedPriceCents: 5_500 });
+
+    const res = await request(app).patch('/bookings/booking-3/status').set('Authorization', `Bearer ${driverToken}`)
+      .send({ status: BookingStatus.PICKED_UP });
+
+    expect(res.status).toBe(409);
+    expect(prismaMock.booking.update).not.toHaveBeenCalled();
   });
 });
 
