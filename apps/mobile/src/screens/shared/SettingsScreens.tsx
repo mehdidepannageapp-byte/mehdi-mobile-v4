@@ -17,7 +17,7 @@ export function VehiclesScreen({ navigation }: Props<'Vehicles'>) {
   const [brand, setBrand] = useState(''); const [model, setModel] = useState(''); const [plate, setPlate] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const load = useCallback(() => api.vehicles().then(setVehicles).finally(() => setLoading(false)), []);
+  const load = useCallback(() => api.vehicles().then(setVehicles).catch(() => undefined).finally(() => setLoading(false)), []);
   useEffect(() => { void load(); }, [load]);
 
   function startAdd() { setEditingId('new'); setBrand(''); setModel(''); setPlate(''); }
@@ -58,7 +58,7 @@ export function VehiclesScreen({ navigation }: Props<'Vehicles'>) {
 // obligatoires (confirmation, facture) restent toujours envoyées, quel que soit ce réglage.
 export function NotificationsScreen({ navigation }: Props<'Notifications'>) {
   const [pushEnabled, setPushEnabled] = useState(true);
-  useEffect(() => { api.notificationPreferences().then((p) => setPushEnabled(p.pushEnabled)); }, []);
+  useEffect(() => { api.notificationPreferences().then((p) => setPushEnabled(p.pushEnabled)).catch(() => undefined); }, []);
   async function toggle(value: boolean) {
     setPushEnabled(value);
     try { await api.updateNotificationPreferences(value); }

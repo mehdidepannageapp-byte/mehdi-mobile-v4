@@ -18,7 +18,7 @@ type Props<T extends keyof RootStackParamList> = NativeStackScreenProps<RootStac
 
 export function MissionOfferScreen({ navigation, route }: Props<'MissionOffer'>) {
   const [booking, setBooking] = useState<Booking | null>(null); const [loading, setLoading] = useState(false);
-  useEffect(() => { api.booking(route.params.bookingId).then(setBooking); }, []);
+  useEffect(() => { api.booking(route.params.bookingId).then(setBooking).catch(() => undefined); }, []);
   async function accept() { try { setLoading(true); await api.updateStatus(route.params.bookingId, 'DRIVER_EN_ROUTE'); navigation.replace('DriverNavigation', { bookingId: route.params.bookingId }); } finally { setLoading(false); } }
   if (!booking) return <AppScreen><Text style={ui.muted}>Chargement de la mission…</Text></AppScreen>;
   return <AppScreen><Header title="Nouvelle mission" subtitle="Répondez rapidement" onBack={() => navigation.goBack()} /><View style={styles.bell}><Ionicons name="notifications" size={44} color={colors.bg} /></View><Card style={{ borderColor: colors.yellow }}><View style={styles.between}><Pill label="NOUVELLE DEMANDE" tone="yellow" /><Money cents={booking.estimatedPriceCents} size={22} /></View><Text style={styles.title}>{issueLabel(booking.issueType)}</Text><Info icon="location" text={booking.pickupAddress} />{booking.serviceType === 'ON_SITE_REPAIR' ? <Info icon="build" text="Réparation sur place" /> : <Info icon="navigate" text={`${(booking.distanceKm ?? 0).toFixed(1)} km de transport`} />}<Info icon="person" text={booking.client?.firstName ?? 'Client'} /><Info icon="bicycle" text={booking.vehicle ? `${booking.vehicle.brand} ${booking.vehicle.model}` : 'Moto'} /></Card><PrimaryButton title="Accepter la mission" tone="green" onPress={accept} loading={loading} /><PrimaryButton title="Refuser" tone="red" onPress={() => navigation.navigate('RefusalDelay', { bookingId: route.params.bookingId })} /></AppScreen>;
@@ -48,7 +48,7 @@ export function RefusalDelayScreen({ navigation, route }: Props<'RefusalDelay'>)
 export function DriverNavigationScreen({ navigation, route }: Props<'DriverNavigation'>) {
   const { token } = useAuth(); const [booking, setBooking] = useState<Booking | null>(null);
   useDriverLocation(route.params.bookingId, token);
-  useEffect(() => { api.booking(route.params.bookingId).then(setBooking); }, []);
+  useEffect(() => { api.booking(route.params.bookingId).then(setBooking).catch(() => undefined); }, []);
   if (!booking) return <AppScreen><Text style={ui.muted}>Préparation de l’itinéraire…</Text></AppScreen>;
   const mission = booking;
   async function openNavigation(preferWaze: boolean) { const lat = mission.pickupLatitude; const lng = mission.pickupLongitude; const waze = `waze://?ll=${lat},${lng}&navigate=yes`; const apple = `http://maps.apple.com/?daddr=${lat},${lng}&dirflg=d`; const google = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`; if (preferWaze && await Linking.canOpenURL(waze)) return Linking.openURL(waze); return Linking.openURL(Platform.OS === 'ios' ? apple : google); }
@@ -57,7 +57,7 @@ export function DriverNavigationScreen({ navigation, route }: Props<'DriverNavig
 
 export function DriverArrivalScreen({ navigation, route }: Props<'DriverArrival'>) {
   const [booking, setBooking] = useState<Booking | null>(null);
-  useEffect(() => { api.booking(route.params.bookingId).then(setBooking); }, []);
+  useEffect(() => { api.booking(route.params.bookingId).then(setBooking).catch(() => undefined); }, []);
   const onSite = booking?.serviceType === 'ON_SITE_REPAIR';
   async function confirmArrival() {
     // Si la mission n'a pas fini de charger, on attend la vraie valeur pour ne jamais aiguiller
@@ -78,7 +78,7 @@ export function PickupPhotosScreen({ navigation, route }: Props<'PickupPhotos'>)
 
 export function TransportScreen({ navigation, route }: Props<'Transport'>) {
   const { token } = useAuth(); const [booking, setBooking] = useState<Booking | null>(null); const [started, setStarted] = useState(false); useDriverLocation(route.params.bookingId, token);
-  useEffect(() => { api.booking(route.params.bookingId).then((b) => { setBooking(b); setStarted(b.status === 'IN_TRANSIT'); }); }, []);
+  useEffect(() => { api.booking(route.params.bookingId).then((b) => { setBooking(b); setStarted(b.status === 'IN_TRANSIT'); }).catch(() => undefined); }, []);
   if (!booking) return <AppScreen><Text style={ui.muted}>Chargement…</Text></AppScreen>;
   const mission = booking;
   async function openDestination() { const lat = mission.destinationLatitude; const lng = mission.destinationLongitude; const waze = `waze://?ll=${lat},${lng}&navigate=yes`; if (await Linking.canOpenURL(waze)) return Linking.openURL(waze); return Linking.openURL(Platform.OS === 'ios' ? `http://maps.apple.com/?daddr=${lat},${lng}&dirflg=d` : `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`); }
@@ -117,7 +117,7 @@ export function ReportIncidentScreen({ navigation, route }: Props<'ReportInciden
 // ou bascule la mission vers un transport si la réparation s'avère impossible.
 export function OnSiteRepairScreen({ navigation, route }: Props<'OnSiteRepair'>) {
   const [booking, setBooking] = useState<Booking | null>(null); const [cashReceived, setCashReceived] = useState(false); const [loading, setLoading] = useState(false);
-  useEffect(() => { api.booking(route.params.bookingId).then(setBooking); }, []);
+  useEffect(() => { api.booking(route.params.bookingId).then(setBooking).catch(() => undefined); }, []);
   async function complete() {
     try {
       setLoading(true);
@@ -169,7 +169,7 @@ export function DriverAbsenceScreen({ navigation, route }: Props<'DriverAbsence'
   const [attempts, setAttempts] = useState<number>(0);
   const [reason, setReason] = useState('');
   const [loading, setLoading] = useState(false);
-  useEffect(() => { api.booking(route.params.bookingId).then((b) => { setBooking(b); setAttempts(b.contactAttempts?.length ?? 0); }); }, []);
+  useEffect(() => { api.booking(route.params.bookingId).then((b) => { setBooking(b); setAttempts(b.contactAttempts?.length ?? 0); }).catch(() => undefined); }, []);
   async function contact(method: 'CALL' | 'MESSAGE') {
     try {
       await api.contactAttempt(route.params.bookingId, method);
@@ -235,7 +235,7 @@ export function PostPickupCancellationDecisionScreen({ navigation, route }: Prop
   const [destination, setDestination] = useState<{ address: string; latitude: number; longitude: number } | null>(null);
   const [garages, setGarages] = useState<Awaited<ReturnType<typeof api.garages>>>([]);
   const [loading, setLoading] = useState(false);
-  useEffect(() => { api.booking(route.params.bookingId).then(setBooking); api.garages().then(setGarages).catch(() => undefined); }, []);
+  useEffect(() => { api.booking(route.params.bookingId).then(setBooking).catch(() => undefined); api.garages().then(setGarages).catch(() => undefined); }, []);
   const request = booking?.postPickupCancellationRequests?.find((r) => r.status === 'PENDING');
   async function accept() {
     if (!request || !destination) return;
@@ -262,14 +262,14 @@ export function PostPickupCancellationDecisionScreen({ navigation, route }: Prop
 
 export function DeliveryScreen({ navigation, route }: Props<'Delivery'>) {
   const [photos, setPhotos] = useState<string[]>([]); const [loading, setLoading] = useState(false); const [booking, setBooking] = useState<Booking | null>(null); const [cashReceived, setCashReceived] = useState(false);
-  useEffect(() => { api.booking(route.params.bookingId).then(setBooking); }, []);
+  useEffect(() => { api.booking(route.params.bookingId).then(setBooking).catch(() => undefined); }, []);
   async function pick() { const result = await ImagePicker.launchCameraAsync({ quality: .75 }); if (!result.canceled) setPhotos((old) => [...old, result.assets[0]!.uri]); }
   async function finish() { try { setLoading(true); await api.updateStatus(route.params.bookingId, 'DELIVERED'); for (const uri of photos) await api.uploadPhoto(route.params.bookingId, 'DELIVERY', uri); await api.updateStatus(route.params.bookingId, 'COMPLETED', { cashReceived: booking?.paymentMethod === 'CASH' ? cashReceived : undefined }); navigation.replace('MissionSummary', { bookingId: route.params.bookingId }); } catch (e) { Alert.alert('Mission non terminée', e instanceof Error ? e.message : 'Réessayez.'); } finally { setLoading(false); } }
   return <AppScreen><Header title="Livraison" subtitle="Dernière étape" onBack={() => navigation.goBack()} /><View style={styles.success}><Ionicons name="checkmark-circle" size={88} color={colors.green} /><Text style={styles.title}>Moto livrée</Text><Text style={styles.centerText}>Confirmez que la moto est arrivée à la destination prévue.</Text></View>{booking?.paymentMethod === 'CASH' ? <ToggleRow title="Paiement en espèces reçu" subtitle={`${((booking.finalPriceCents ?? booking.estimatedPriceCents) / 100).toFixed(2)} € remis par le client`} value={cashReceived} onValueChange={setCashReceived} /> : <Card><Info icon="card" text="Paiement par carte préautorisé" /></Card>}<SectionTitle>Photo de livraison (obligatoire)</SectionTitle><Text style={ui.muted}>Au moins une photo est requise avant de clôturer la mission.</Text><View style={styles.photos}>{photos.map((uri) => <Image key={uri} source={{ uri }} style={styles.photo} />)}<Pressable onPress={pick} style={styles.photoAdd}><Ionicons name="camera" size={28} color={colors.yellow} /><Text style={styles.yellow}>Ajouter</Text></Pressable></View><PrimaryButton title="Terminer la mission" tone="green" onPress={finish} loading={loading} disabled={(booking?.paymentMethod === 'CASH' && !cashReceived) || photos.length === 0} /></AppScreen>;
 }
 
 export function MissionSummaryScreen({ navigation, route }: Props<'MissionSummary'>) {
-  const [booking, setBooking] = useState<Booking | null>(null); useEffect(() => { api.booking(route.params.bookingId).then(setBooking); }, []);
+  const [booking, setBooking] = useState<Booking | null>(null); useEffect(() => { api.booking(route.params.bookingId).then(setBooking).catch(() => undefined); }, []);
   return <AppScreen><View style={styles.success}><Ionicons name="checkmark-circle" size={88} color={colors.green} /><Text style={styles.title}>Mission terminée</Text><Text style={styles.centerText}>Le client a été informé et le paiement a été déclenché.</Text></View>{booking ? <Card><View style={styles.between}><Text style={ui.muted}>Mission</Text><Text style={ui.optionTitle}>{booking.reference}</Text></View><View style={styles.between}><Text style={ui.muted}>Montant</Text><Money cents={booking.finalPriceCents ?? booking.estimatedPriceCents} size={23} /></View><Info icon="receipt" text="Compte rendu et facture enregistrés" /><Info icon="images" text={`${booking.photos?.length ?? 0} photo(s) jointe(s)`} /></Card> : null}<PrimaryButton title="Retour aux missions" onPress={() => navigation.replace('DriverHome')} /></AppScreen>;
 }
 

@@ -37,7 +37,7 @@ export function AuthProvider({ children }: React.PropsWithChildren) {
       if (!raw) return;
       const saved = JSON.parse(raw) as Session;
       setApiToken(saved.token); setRefreshToken(saved.refreshToken); setToken(saved.token); setUser(saved.user);
-    }).finally(() => setLoading(false));
+    }).catch(() => void AsyncStorage.removeItem(STORAGE_KEY)).finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {

@@ -20,7 +20,7 @@ export function DriverHomeScreen({ navigation }: Props<'DriverHome'>) {
     api.driverDashboard().then((data) => { setDashboard(data); setOnline(Boolean(data.user.isAvailable)); }),
     api.driverConflicts().then(setConflicts),
     api.driverAppointmentChanges().then(setAppointmentChanges),
-  ]), []);
+  ]).catch(() => undefined), []);
   useEffect(() => { void load(); const timer = setInterval(load, 5000); return () => clearInterval(timer); }, [load]);
   async function toggle(value: boolean) { try { setLoading(true); setOnline(value); await api.driverAvailability(value); await load(); } catch (e) { setOnline(!value); Alert.alert('Impossible', e instanceof Error ? e.message : 'Réessayez.'); } finally { setLoading(false); } }
   const active = dashboard?.active;
@@ -44,12 +44,12 @@ function ActiveMission({ booking, navigation }: { booking: Booking; navigation: 
 }
 
 export function DriverHistoryScreen({ navigation }: Props<'DriverHistory'>) {
-  const [items, setItems] = useState<Booking[]>([]); useEffect(() => { api.bookings().then(setItems); }, []);
+  const [items, setItems] = useState<Booking[]>([]); useEffect(() => { api.bookings().then(setItems).catch(() => undefined); }, []);
   return <AppScreen><Header title="Historique des missions" subtitle={`${items.length} mission${items.length > 1 ? 's' : ''}`} onBack={() => navigation.goBack()} />{items.length ? items.map((b) => <Card key={b.id}><View style={styles.between}><Pill label={labelStatus(b.status)} tone={b.status === 'COMPLETED' ? 'green' : b.status === 'CANCELLED' ? 'red' : 'yellow'} /><Text style={ui.muted}>{new Date(b.createdAt).toLocaleDateString('fr-FR')}</Text></View><Text style={ui.optionTitle}>{issueLabel(b.issueType)}</Text><Text style={ui.muted}>{b.pickupAddress}</Text><Money cents={b.finalPriceCents ?? b.estimatedPriceCents} size={20} /></Card>) : <Empty icon="file-tray-outline" title="Aucune mission" text="Vos missions apparaîtront ici." />}</AppScreen>;
 }
 
 export function DriverEarningsScreen({ navigation }: Props<'DriverEarnings'>) {
-  const [dashboard, setDashboard] = useState<Dashboard | null>(null); useEffect(() => { api.driverDashboard().then(setDashboard); }, []);
+  const [dashboard, setDashboard] = useState<Dashboard | null>(null); useEffect(() => { api.driverDashboard().then(setDashboard).catch(() => undefined); }, []);
   return <AppScreen><Header title="Mes revenus" subtitle="Compte rendu" /><Card style={styles.revenue}><Text style={ui.muted}>CHIFFRE DU MOIS</Text><Money cents={dashboard?.stats.monthRevenueCents ?? 0} size={40} /><Pill label={`${dashboard?.stats.completedCount ?? 0} missions réalisées`} tone="green" /></Card><View style={styles.stats}><Card style={styles.stat}><Text style={ui.muted}>Revenu total</Text><Money cents={dashboard?.stats.totalRevenueCents ?? 0} size={21} /></Card><Card style={styles.stat}><Text style={ui.muted}>Moyenne</Text><Money cents={dashboard?.stats.completedCount ? Math.round(dashboard.stats.totalRevenueCents / dashboard.stats.completedCount) : 0} size={21} /></Card></View><SectionTitle>Activité</SectionTitle><Card><View style={styles.chart}>{[38, 55, 42, 76, 62, 88, 69].map((h, i) => <View key={i} style={[styles.bar, { height: h }]} />)}</View><Text style={[ui.muted, { textAlign: 'center' }]}>Aperçu des 7 derniers jours</Text></Card><OptionCard icon="time" title="Historique des missions" onPress={() => navigation.navigate('DriverHistory')} /><BottomMenu navigation={navigation} role="driver" active="earnings" /></AppScreen>;
 }
 
@@ -73,7 +73,7 @@ export function DriverUnavailabilityScreen({ navigation }: Props<'DriverUnavaila
   const [startHour, setStartHour] = useState(8);
   const [endHour, setEndHour] = useState(12);
   const [loading, setLoading] = useState(false);
-  const load = useCallback(() => { api.unavailabilities().then(setItems); }, []);
+  const load = useCallback(() => { api.unavailabilities().then(setItems).catch(() => undefined); }, []);
   useEffect(() => { void load(); }, [load]);
   const valid = endHour > startHour;
 
@@ -117,7 +117,7 @@ export function DriverUnavailabilityScreen({ navigation }: Props<'DriverUnavaila
 
 export function DriverConflictsScreen({ navigation }: Props<'DriverConflicts'>) {
   const [items, setItems] = useState<Booking[]>([]);
-  const load = useCallback(() => { api.driverConflicts().then(setItems); }, []);
+  const load = useCallback(() => { api.driverConflicts().then(setItems).catch(() => undefined); }, []);
   useEffect(() => { void load(); const timer = setInterval(load, 10000); return () => clearInterval(timer); }, [load]);
   return <AppScreen><Header title="Demandes en conflit" subtitle="Le client a été prévenu, lisez sa réponse" onBack={() => navigation.goBack()} />
     {items.length ? items.map((b) => <Card key={b.id}><View style={styles.between}><Text style={ui.optionTitle}>{issueLabel(b.issueType)}</Text><Money cents={b.estimatedPriceCents} size={19} /></View><Text style={ui.muted}>{b.pickupAddress}</Text><Text style={ui.muted}>{b.client?.firstName ?? 'Client'}</Text>
@@ -131,7 +131,7 @@ export function DriverConflictsScreen({ navigation }: Props<'DriverConflicts'>) 
 export function DriverAppointmentChangesScreen({ navigation }: Props<'DriverAppointmentChanges'>) {
   const [items, setItems] = useState<Booking[]>([]);
   const [loading, setLoading] = useState<string | null>(null);
-  const load = useCallback(() => { api.driverAppointmentChanges().then(setItems); }, []);
+  const load = useCallback(() => { api.driverAppointmentChanges().then(setItems).catch(() => undefined); }, []);
   useEffect(() => { void load(); const timer = setInterval(load, 10000); return () => clearInterval(timer); }, [load]);
   async function accept(booking: Booking) {
     const change = booking.appointmentChangeRequests?.find((c) => c.status === 'PENDING');

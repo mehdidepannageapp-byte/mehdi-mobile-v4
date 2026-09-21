@@ -13,7 +13,7 @@ import type { Message, RootStackParamList } from '../../types';
 export function ChatScreen({ navigation, route }: NativeStackScreenProps<RootStackParamList, 'Chat'>) {
   const { user, token } = useAuth(); const [messages, setMessages] = useState<Message[]>([]); const [text, setText] = useState(''); const socket = useRef<Socket | null>(null);
   useEffect(() => {
-    api.booking(route.params.bookingId).then((b) => setMessages(b.messages ?? []));
+    api.booking(route.params.bookingId).then((b) => setMessages(b.messages ?? [])).catch(() => undefined);
     socket.current = io(API_URL, { auth: { token } }); socket.current.emit('booking:join', route.params.bookingId);
     socket.current.on('message:new', (message: Message) => setMessages((old) => old.some((m) => m.id === message.id) ? old : [...old, message]));
     return () => { socket.current?.disconnect(); };

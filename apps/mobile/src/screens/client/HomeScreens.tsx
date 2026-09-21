@@ -17,7 +17,7 @@ function activeRoute(status: string): 'Searching' | 'Proposal' | 'ClientTracking
 
 export function ClientHomeScreen({ navigation }: Props<'ClientHome'>) {
   const { user } = useAuth(); const [active, setActive] = useState<Booking | null>(null); const [refreshing, setRefreshing] = useState(false);
-  const load = useCallback(async () => { try { const list = await api.bookings(); setActive(list.find((b) => activeStatuses.includes(b.status)) ?? null); } finally { setRefreshing(false); } }, []);
+  const load = useCallback(async () => { try { const list = await api.bookings(); setActive(list.find((b) => activeStatuses.includes(b.status)) ?? null); } catch { /* ignoré : la prochaine actualisation réessaiera */ } finally { setRefreshing(false); } }, []);
   useEffect(() => { void load(); }, [load]);
   return <AppScreen><View style={styles.top}><Brand compact /><View style={styles.avatar}><Text style={styles.avatarText}>{user?.firstName?.[0] ?? 'C'}</Text></View></View>
     <View><Text style={styles.greeting}>Bonjour {user?.firstName ?? ''}</Text><Text style={ui.muted}>Besoin d’aide pour votre moto ?</Text></View>
@@ -31,7 +31,7 @@ export function ClientHomeScreen({ navigation }: Props<'ClientHome'>) {
 
 export function ClientHistoryScreen({ navigation }: Props<'ClientHistory'>) {
   const [items, setItems] = useState<Booking[]>([]); const [loading, setLoading] = useState(true);
-  useEffect(() => { api.bookings().then(setItems).finally(() => setLoading(false)); }, []);
+  useEffect(() => { api.bookings().then(setItems).catch(() => undefined).finally(() => setLoading(false)); }, []);
   return <AppScreen><Header title="Mes interventions" subtitle={`${items.length} demande${items.length > 1 ? 's' : ''}`} />
     {items.length === 0 && !loading ? <Empty icon="receipt-outline" title="Aucune intervention" text="Vos demandes et vos factures apparaîtront ici." /> : items.map((item) => <Card key={item.id} onPress={() => item.status === 'COMPLETED' ? navigation.navigate('Invoice', { bookingId: item.id }) : navigation.navigate(activeRoute(item.status), { bookingId: item.id })}><View style={styles.row}><Pill label={labelStatus(item.status)} tone={item.status === 'COMPLETED' ? 'green' : item.status === 'CANCELLED' ? 'red' : 'yellow'} /><Text style={ui.muted}>{new Date(item.createdAt).toLocaleDateString('fr-FR')}</Text></View><Text style={ui.optionTitle}>{issueLabel(item.issueType)}</Text><Text style={ui.muted}>{item.pickupAddress} → {item.destinationAddress}</Text><Money cents={item.finalPriceCents ?? item.estimatedPriceCents} size={19} /></Card>)}
     <BottomMenu navigation={navigation} role="client" active="history" />
