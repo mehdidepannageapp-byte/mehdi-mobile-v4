@@ -63,7 +63,16 @@ function reference() {
 async function authorizedBooking(id: string, userId: string) {
   return prisma.booking.findFirst({
     where: { id, OR: [{ clientId: userId }, { driverId: userId }] },
-    include: { client: true, driver: true, vehicle: true, photos: true, messages: { include: { sender: true }, orderBy: { createdAt: 'asc' } }, invoice: true, review: true, incidents: { orderBy: { createdAt: 'desc' } } },
+    include: {
+      client: true, driver: true, vehicle: true, photos: true,
+      messages: { include: { sender: true }, orderBy: { createdAt: 'asc' } },
+      invoice: true, review: true, incidents: { orderBy: { createdAt: 'desc' } },
+      appointmentChangeRequests: { orderBy: { createdAt: 'desc' } },
+      surcharges: { orderBy: { createdAt: 'desc' } },
+      postPickupCancellationRequests: { orderBy: { createdAt: 'desc' } },
+      contactAttempts: { orderBy: { createdAt: 'desc' } },
+      absence: true,
+    },
   });
 }
 
@@ -341,28 +350,33 @@ bookingsRouter.post('/:id/appointment-change', asyncHandler(async (req, res) => 
   res.status(201).json(request);
 }));
 
+// Comme POST /:id/refuse : une demande de modification porte sur une mission SCHEDULED, donc
+// pas encore assignée à un dépanneur (driverId nul tant que l'assignation automatique n'a pas eu
+// lieu). authorizedBooking() ne peut donc pas servir ici — même schéma d'éligibilité que /refuse.
 bookingsRouter.post('/:id/appointment-change/:changeId/accept', asyncHandler(async (req, res) => {
   if (req.auth!.role !== UserRole.DRIVER) return res.status(403).end();
-  const booking = await authorizedBooking(String(req.params.id), req.auth!.userId);
-  if (!booking || booking.driverId !== req.auth!.userId) return res.status(404).json({ error: 'Demande introuvable' });
-  const change = await prisma.appointmentChangeRequest.findFirst({ where: { id: String(req.params.changeId), bookingId: booking.id, status: 'PENDING' } });
+  const booking = await prisma.booking.findUnique({ where: { id: String(req.params.id) }, include: { client: true, driver: true } });
+  const eligible = Boolean(booking) && (booking!.driverId === req.auth!.userId || !booking!.driverId);
+  if (!eligible) return res.status(404).json({ error: 'Demande introuvable' });
+  const change = await prisma.appointmentChangeRequest.findFirst({ where: { id: String(req.params.changeId), bookingId: booking!.id, status: 'PENDING' } });
   if (!change) return res.status(409).json({ error: 'Demande introuvable ou déjà traitée' });
   const [, updatedBooking] = await prisma.$transaction([
     prisma.appointmentChangeRequest.update({ where: { id: change.id }, data: { status: 'ACCEPTED', decidedById: req.auth!.userId, decidedAt: new Date() } }),
-    prisma.booking.update({ where: { id: booking.id }, data: { scheduledFor: change.proposedFor } }),
+    prisma.booking.update({ where: { id: booking!.id }, data: { scheduledFor: change.proposedFor } }),
   ]);
-  await sendPush(booking.client, 'Rendez-vous modifié', 'Le nouveau créneau a été accepté', { bookingId: booking.id });
+  await sendPush(booking!.client, 'Rendez-vous modifié', 'Le nouveau créneau a été accepté', { bookingId: booking!.id });
   res.json(updatedBooking);
 }));
 
 bookingsRouter.post('/:id/appointment-change/:changeId/reject', asyncHandler(async (req, res) => {
   if (req.auth!.role !== UserRole.DRIVER) return res.status(403).end();
-  const booking = await authorizedBooking(String(req.params.id), req.auth!.userId);
-  if (!booking || booking.driverId !== req.auth!.userId) return res.status(404).json({ error: 'Demande introuvable' });
-  const change = await prisma.appointmentChangeRequest.findFirst({ where: { id: String(req.params.changeId), bookingId: booking.id, status: 'PENDING' } });
+  const booking = await prisma.booking.findUnique({ where: { id: String(req.params.id) }, include: { client: true, driver: true } });
+  const eligible = Boolean(booking) && (booking!.driverId === req.auth!.userId || !booking!.driverId);
+  if (!eligible) return res.status(404).json({ error: 'Demande introuvable' });
+  const change = await prisma.appointmentChangeRequest.findFirst({ where: { id: String(req.params.changeId), bookingId: booking!.id, status: 'PENDING' } });
   if (!change) return res.status(409).json({ error: 'Demande introuvable ou déjà traitée' });
   const updated = await prisma.appointmentChangeRequest.update({ where: { id: change.id }, data: { status: 'REJECTED', decidedById: req.auth!.userId, decidedAt: new Date() } });
-  await sendPush(booking.client, 'Rendez-vous inchangé', 'Le dépanneur a refusé le nouveau créneau proposé', { bookingId: booking.id });
+  await sendPush(booking!.client, 'Rendez-vous inchangé', 'Le dépanneur a refusé le nouveau créneau proposé', { bookingId: booking!.id });
   res.json(updated);
 }));
 

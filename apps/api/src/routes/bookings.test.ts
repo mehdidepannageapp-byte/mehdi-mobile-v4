@@ -527,7 +527,7 @@ describe('POST /bookings/:id/appointment-change (modification de rendez-vous)', 
   });
 
   it('le dépanneur accepte la demande et met à jour le rendez-vous', async () => {
-    prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-1', driverId: 'driver-1', client: { pushToken: null } });
+    prismaMock.booking.findUnique.mockResolvedValue({ id: 'booking-1', driverId: 'driver-1', client: { pushToken: null } });
     const proposedFor = new Date(Date.now() + 3600_000);
     prismaMock.appointmentChangeRequest.findFirst.mockResolvedValue({ id: 'change-1', bookingId: 'booking-1', status: 'PENDING', proposedFor });
     prismaMock.booking.update.mockResolvedValue({ id: 'booking-1', scheduledFor: proposedFor });
@@ -541,8 +541,21 @@ describe('POST /bookings/:id/appointment-change (modification de rendez-vous)', 
     expect(prismaMock.booking.update).toHaveBeenCalledWith({ where: { id: 'booking-1' }, data: { scheduledFor: proposedFor } });
   });
 
+  it('le dépanneur (unique) accepte une demande sur une mission SCHEDULED pas encore assignée (driverId nul)', async () => {
+    // Une mission SCHEDULED n'a pas encore de driverId tant que l'assignation automatique n'a pas
+    // eu lieu : le dépanneur unique doit tout de même pouvoir décider, comme pour POST /:id/refuse.
+    prismaMock.booking.findUnique.mockResolvedValue({ id: 'booking-1', driverId: null, client: { pushToken: null } });
+    const proposedFor = new Date(Date.now() + 3600_000);
+    prismaMock.appointmentChangeRequest.findFirst.mockResolvedValue({ id: 'change-1', bookingId: 'booking-1', status: 'PENDING', proposedFor });
+    prismaMock.booking.update.mockResolvedValue({ id: 'booking-1', scheduledFor: proposedFor });
+
+    const res = await request(app).post('/bookings/booking-1/appointment-change/change-1/accept').set('Authorization', `Bearer ${driverToken}`).send({});
+
+    expect(res.status).toBe(200);
+  });
+
   it('le dépanneur refuse la demande sans toucher au rendez-vous existant', async () => {
-    prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-1', driverId: 'driver-1', client: { pushToken: null } });
+    prismaMock.booking.findUnique.mockResolvedValue({ id: 'booking-1', driverId: 'driver-1', client: { pushToken: null } });
     prismaMock.appointmentChangeRequest.findFirst.mockResolvedValue({ id: 'change-1', bookingId: 'booking-1', status: 'PENDING' });
     prismaMock.appointmentChangeRequest.update.mockResolvedValue({ id: 'change-1', status: 'REJECTED' });
 
