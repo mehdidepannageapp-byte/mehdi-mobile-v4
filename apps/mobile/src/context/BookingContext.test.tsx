@@ -8,7 +8,7 @@ function wrapper({ children }: PropsWithChildren) {
   return <BookingProvider>{children}</BookingProvider>;
 }
 
-const initialDraft = { brand: '', model: '', plate: '', photos: [], distanceKm: 10 };
+const initialDraft = { brand: '', model: '', plate: '', photos: [], distanceKm: 10, serviceType: 'TRANSPORT' };
 
 describe('BookingContext', () => {
   it('démarre avec le brouillon initial et sans course active', () => {

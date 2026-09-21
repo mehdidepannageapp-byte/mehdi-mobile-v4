@@ -21,7 +21,7 @@ export function MissionOfferScreen({ navigation, route }: Props<'MissionOffer'>)
   useEffect(() => { api.booking(route.params.bookingId).then(setBooking); }, []);
   async function accept() { try { setLoading(true); await api.updateStatus(route.params.bookingId, 'DRIVER_EN_ROUTE'); navigation.replace('DriverNavigation', { bookingId: route.params.bookingId }); } finally { setLoading(false); } }
   if (!booking) return <AppScreen><Text style={ui.muted}>Chargement de la mission…</Text></AppScreen>;
-  return <AppScreen><Header title="Nouvelle mission" subtitle="Répondez rapidement" onBack={() => navigation.goBack()} /><View style={styles.bell}><Ionicons name="notifications" size={44} color={colors.bg} /></View><Card style={{ borderColor: colors.yellow }}><View style={styles.between}><Pill label="NOUVELLE DEMANDE" tone="yellow" /><Money cents={booking.estimatedPriceCents} size={22} /></View><Text style={styles.title}>{issueLabel(booking.issueType)}</Text><Info icon="location" text={booking.pickupAddress} /><Info icon="navigate" text={`${booking.distanceKm.toFixed(1)} km de transport`} /><Info icon="person" text={booking.client?.firstName ?? 'Client'} /><Info icon="bicycle" text={booking.vehicle ? `${booking.vehicle.brand} ${booking.vehicle.model}` : 'Moto'} /></Card><PrimaryButton title="Accepter la mission" tone="green" onPress={accept} loading={loading} /><PrimaryButton title="Refuser" tone="red" onPress={() => navigation.navigate('RefusalDelay', { bookingId: route.params.bookingId })} /></AppScreen>;
+  return <AppScreen><Header title="Nouvelle mission" subtitle="Répondez rapidement" onBack={() => navigation.goBack()} /><View style={styles.bell}><Ionicons name="notifications" size={44} color={colors.bg} /></View><Card style={{ borderColor: colors.yellow }}><View style={styles.between}><Pill label="NOUVELLE DEMANDE" tone="yellow" /><Money cents={booking.estimatedPriceCents} size={22} /></View><Text style={styles.title}>{issueLabel(booking.issueType)}</Text><Info icon="location" text={booking.pickupAddress} />{booking.serviceType === 'ON_SITE_REPAIR' ? <Info icon="build" text="Réparation sur place" /> : <Info icon="navigate" text={`${(booking.distanceKm ?? 0).toFixed(1)} km de transport`} />}<Info icon="person" text={booking.client?.firstName ?? 'Client'} /><Info icon="bicycle" text={booking.vehicle ? `${booking.vehicle.brand} ${booking.vehicle.model}` : 'Moto'} /></Card><PrimaryButton title="Accepter la mission" tone="green" onPress={accept} loading={loading} /><PrimaryButton title="Refuser" tone="red" onPress={() => navigation.navigate('RefusalDelay', { bookingId: route.params.bookingId })} /></AppScreen>;
 }
 
 const refusalDelays: Array<{ minutes: 30 | 60 | 90; title: string; subtitle: string }> = [
@@ -56,7 +56,17 @@ export function DriverNavigationScreen({ navigation, route }: Props<'DriverNavig
 }
 
 export function DriverArrivalScreen({ navigation, route }: Props<'DriverArrival'>) {
-  return <AppScreen scroll={false} style={{ justifyContent: 'space-between' }}><Header title="Arrivée sur place" subtitle="Confirmez la prise en charge" onBack={() => navigation.goBack()} /><View style={styles.center}><View style={styles.pin}><Ionicons name="location" size={55} color={colors.yellow} /></View><Text style={styles.title}>Vous êtes arrivé sur place</Text><Text style={styles.centerText}>Prévenez le client dans la messagerie si vous ne le trouvez pas.</Text></View><View style={{ gap: 10 }}><SecondaryButton title="Contacter dans l’application" icon="chatbubble" onPress={() => navigation.navigate('Chat', { bookingId: route.params.bookingId })} /><PrimaryButton title="Confirmer l’arrivée" onPress={() => navigation.navigate('PickupPhotos', { bookingId: route.params.bookingId })} /></View></AppScreen>;
+  const [booking, setBooking] = useState<Booking | null>(null);
+  useEffect(() => { api.booking(route.params.bookingId).then(setBooking); }, []);
+  const onSite = booking?.serviceType === 'ON_SITE_REPAIR';
+  async function confirmArrival() {
+    // Si la mission n'a pas fini de charger, on attend la vraie valeur pour ne jamais aiguiller
+    // une réparation sur place vers le flux transport (ou l'inverse) par défaut optimiste.
+    const current = booking ?? await api.booking(route.params.bookingId);
+    if (current.serviceType === 'ON_SITE_REPAIR') navigation.navigate('OnSiteRepair', { bookingId: route.params.bookingId });
+    else navigation.navigate('PickupPhotos', { bookingId: route.params.bookingId });
+  }
+  return <AppScreen scroll={false} style={{ justifyContent: 'space-between' }}><Header title="Arrivée sur place" subtitle="Confirmez la prise en charge" onBack={() => navigation.goBack()} /><View style={styles.center}><View style={styles.pin}><Ionicons name="location" size={55} color={colors.yellow} /></View><Text style={styles.title}>Vous êtes arrivé sur place</Text><Text style={styles.centerText}>Prévenez le client dans la messagerie si vous ne le trouvez pas.</Text></View><View style={{ gap: 10 }}><SecondaryButton title="Contacter dans l’application" icon="chatbubble" onPress={() => navigation.navigate('Chat', { bookingId: route.params.bookingId })} /><SecondaryButton title="Le client est absent" danger icon="alert-circle" onPress={() => navigation.navigate('DriverAbsence', { bookingId: route.params.bookingId })} /><PrimaryButton title="Confirmer l’arrivée" onPress={confirmArrival} /></View></AppScreen>;
 }
 
 export function PickupPhotosScreen({ navigation, route }: Props<'PickupPhotos'>) {
@@ -73,7 +83,10 @@ export function TransportScreen({ navigation, route }: Props<'Transport'>) {
   const mission = booking;
   async function openDestination() { const lat = mission.destinationLatitude; const lng = mission.destinationLongitude; const waze = `waze://?ll=${lat},${lng}&navigate=yes`; if (await Linking.canOpenURL(waze)) return Linking.openURL(waze); return Linking.openURL(Platform.OS === 'ios' ? `http://maps.apple.com/?daddr=${lat},${lng}&dirflg=d` : `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`); }
   async function start() { await api.updateStatus(mission.id, 'IN_TRANSIT'); setStarted(true); await openDestination(); }
-  return <AppScreen><Header title="Chargement & transport" subtitle={booking.reference} onBack={() => navigation.navigate('DriverHome')} /><View style={styles.transportHero}><Ionicons name="car-sport" size={72} color={colors.yellow} /><Pill label={started ? 'TRANSPORT EN COURS' : 'MOTO CHARGÉE'} tone={started ? 'green' : 'yellow'} /></View><Card><Step done text="Dépanneur sur place" /><Step done text="Moto chargée" /><Step done={started} text="Transport vers la destination" /><Step text="Livraison au client / garage" /></Card><Card><Text style={ui.label}>DESTINATION</Text><Text style={ui.optionTitle}>{booking.destinationAddress}</Text></Card>{started ? <PrimaryButton title="Arrivé à destination" tone="green" onPress={() => navigation.navigate('Delivery', { bookingId: booking.id })} /> : <PrimaryButton title="Démarrer le transport" icon="navigate" onPress={start} />}<SecondaryButton title="Signaler un problème" danger icon="warning" onPress={() => navigation.navigate('ReportIncident', { bookingId: booking.id })} /></AppScreen>;
+  const pendingCancellation = booking.postPickupCancellationRequests?.find((r) => r.status === 'PENDING');
+  return <AppScreen><Header title="Chargement & transport" subtitle={booking.reference} onBack={() => navigation.navigate('DriverHome')} /><View style={styles.transportHero}><Ionicons name="car-sport" size={72} color={colors.yellow} /><Pill label={started ? 'TRANSPORT EN COURS' : 'MOTO CHARGÉE'} tone={started ? 'green' : 'yellow'} /></View>
+    {pendingCancellation ? <Card style={{ borderColor: colors.red }}><View style={styles.between}><Pill label="DEMANDE DU CLIENT" tone="red" /><Ionicons name="chevron-forward" size={20} color={colors.text} /></View><Text style={ui.muted}>Le client souhaite annuler après la prise en charge.</Text><PrimaryButton title="Traiter la demande" tone="red" onPress={() => navigation.navigate('PostPickupCancellationDecision', { bookingId: booking.id })} /></Card> : null}
+    <Card><Step done text="Dépanneur sur place" /><Step done text="Moto chargée" /><Step done={started} text="Transport vers la destination" /><Step text="Livraison au client / garage" /></Card><Card><Text style={ui.label}>DESTINATION</Text><Text style={ui.optionTitle}>{booking.destinationAddress}</Text></Card>{started ? <PrimaryButton title="Arrivé à destination" tone="green" onPress={() => navigation.navigate('Delivery', { bookingId: booking.id })} /> : <PrimaryButton title="Démarrer le transport" icon="navigate" onPress={start} />}<SecondaryButton title="Ajouter un supplément" icon="pricetag" onPress={() => navigation.navigate('ApplySurcharge', { bookingId: booking.id })} /><SecondaryButton title="Signaler un problème" danger icon="warning" onPress={() => navigation.navigate('ReportIncident', { bookingId: booking.id })} /></AppScreen>;
 }
 
 const incidentTypes = ['Panne pendant le transport', 'Problème avec le client', 'Accident / chute', 'Autre problème'];
@@ -97,6 +110,153 @@ export function ReportIncidentScreen({ navigation, route }: Props<'ReportInciden
     {incidentTypes.map((t) => <OptionCard key={t} icon="warning" title={t} selected={type === t} onPress={() => setType(t)} tone="red" />)}
     <Field label="Détails (facultatif)" value={description} onChangeText={setDescription} placeholder="Précisez la situation…" multiline />
     <PrimaryButton title="Envoyer" tone="red" onPress={submit} loading={loading} disabled={!type} />
+  </AppScreen>;
+}
+
+// B12 : après diagnostic sur place, le dépanneur clôture directement (pas d'étape de transport)
+// ou bascule la mission vers un transport si la réparation s'avère impossible.
+export function OnSiteRepairScreen({ navigation, route }: Props<'OnSiteRepair'>) {
+  const [booking, setBooking] = useState<Booking | null>(null); const [cashReceived, setCashReceived] = useState(false); const [loading, setLoading] = useState(false);
+  useEffect(() => { api.booking(route.params.bookingId).then(setBooking); }, []);
+  async function complete() {
+    try {
+      setLoading(true);
+      await api.updateStatus(route.params.bookingId, 'COMPLETED', { cashReceived: booking?.paymentMethod === 'CASH' ? cashReceived : undefined });
+      navigation.replace('MissionSummary', { bookingId: route.params.bookingId });
+    } catch (e) { Alert.alert('Mission non terminée', e instanceof Error ? e.message : 'Réessayez.'); }
+    finally { setLoading(false); }
+  }
+  if (!booking) return <AppScreen><Text style={ui.muted}>Chargement…</Text></AppScreen>;
+  return <AppScreen><Header title="Réparation sur place" subtitle="Diagnostic effectué" onBack={() => navigation.goBack()} /><View style={styles.success}><Ionicons name="build" size={72} color={colors.yellow} /><Text style={styles.title}>La réparation est-elle possible ici ?</Text></View>
+    {booking.paymentMethod === 'CASH' ? <ToggleRow title="Paiement en espèces reçu" subtitle={`${(booking.estimatedPriceCents / 100).toFixed(2)} € remis par le client`} value={cashReceived} onValueChange={setCashReceived} /> : <Card><Info icon="card" text="Paiement par carte préautorisé" /></Card>}
+    <PrimaryButton title="Réparation réussie" tone="green" icon="checkmark-circle" onPress={complete} loading={loading} disabled={booking.paymentMethod === 'CASH' && !cashReceived} />
+    <SecondaryButton title="Transport nécessaire" icon="car-sport" onPress={() => navigation.navigate('ConvertToTransport', { bookingId: route.params.bookingId })} />
+  </AppScreen>;
+}
+
+// B12 : bascule la mission vers un transport et recalcule le prix côté serveur.
+export function ConvertToTransportScreen({ navigation, route }: Props<'ConvertToTransport'>) {
+  const [destination, setDestination] = useState<{ address: string; latitude: number; longitude: number } | null>(null);
+  const [distanceKm, setDistanceKm] = useState('5');
+  const [loading, setLoading] = useState(false);
+  const [garages, setGarages] = useState<Awaited<ReturnType<typeof api.garages>>>([]);
+  useEffect(() => { api.garages().then(setGarages).catch(() => undefined); }, []);
+  async function confirm() {
+    const km = Number(distanceKm.replace(',', '.'));
+    if (!destination || !Number.isFinite(km) || km <= 0) return;
+    try {
+      setLoading(true);
+      await api.convertToTransport(route.params.bookingId, destination, km);
+      navigation.replace('PickupPhotos', { bookingId: route.params.bookingId });
+    } catch (e) { Alert.alert('Conversion impossible', e instanceof Error ? e.message : 'Réessayez.'); }
+    finally { setLoading(false); }
+  }
+  return <AppScreen><Header title="Transporter la moto" subtitle="Choisissez la destination" onBack={() => navigation.goBack()} />
+    {garages.map((g) => <OptionCard key={g.id} icon="business" title={g.name} subtitle={g.address} selected={destination?.address === g.address} onPress={() => setDestination({ address: g.address, latitude: g.latitude, longitude: g.longitude })} />)}
+    <Field label="Distance estimée (km)" value={distanceKm} onChangeText={setDistanceKm} keyboardType="numeric" icon="navigate" />
+    <PrimaryButton title="Confirmer le transport" onPress={confirm} loading={loading} disabled={!destination} />
+  </AppScreen>;
+}
+
+const contactMethods: Array<{ value: 'CALL' | 'MESSAGE'; icon: keyof typeof Ionicons.glyphMap; title: string }> = [
+  { value: 'CALL', icon: 'call', title: 'Appeler le client' }, { value: 'MESSAGE', icon: 'chatbubble', title: 'Envoyer un message' },
+];
+
+// Déclaration d'absence (§2.x) : trace les tentatives de contact, puis facture 50% du devis si le
+// client reste injoignable.
+export function DriverAbsenceScreen({ navigation, route }: Props<'DriverAbsence'>) {
+  const [booking, setBooking] = useState<Booking | null>(null);
+  const [attempts, setAttempts] = useState<number>(0);
+  const [reason, setReason] = useState('');
+  const [loading, setLoading] = useState(false);
+  useEffect(() => { api.booking(route.params.bookingId).then((b) => { setBooking(b); setAttempts(b.contactAttempts?.length ?? 0); }); }, []);
+  async function contact(method: 'CALL' | 'MESSAGE') {
+    try {
+      await api.contactAttempt(route.params.bookingId, method);
+      setAttempts((n) => n + 1);
+      if (method === 'CALL' && booking?.client?.phone) void Linking.openURL(`tel:${booking.client.phone}`);
+      else if (method === 'MESSAGE') navigation.navigate('Chat', { bookingId: route.params.bookingId });
+    } catch (e) { Alert.alert('Erreur', e instanceof Error ? e.message : 'Réessayez.'); }
+  }
+  async function declare() {
+    if (!reason.trim()) return;
+    try {
+      setLoading(true);
+      await api.declareAbsence(route.params.bookingId, reason.trim());
+      Alert.alert('Absence déclarée', 'Des frais de 50% du devis ont été appliqués.', [{ text: 'OK', onPress: () => navigation.replace('DriverHome') }]);
+    } catch (e) { Alert.alert('Envoi impossible', e instanceof Error ? e.message : 'Réessayez.'); }
+    finally { setLoading(false); }
+  }
+  return <AppScreen><Header title="Client absent" subtitle="Tentez de le joindre avant de déclarer une absence" onBack={() => navigation.goBack()} />
+    {contactMethods.map((m) => <OptionCard key={m.value} icon={m.icon} title={m.title} onPress={() => void contact(m.value)} />)}
+    <Card><Text style={ui.muted}>{attempts} tentative{attempts > 1 ? 's' : ''} de contact enregistrée{attempts > 1 ? 's' : ''}.</Text></Card>
+    <SectionTitle>Déclarer l’absence</SectionTitle>
+    <Text style={ui.muted}>Des frais de 50% du devis accepté seront appliqués et la mission sera annulée.</Text>
+    <Field label="Motif" value={reason} onChangeText={setReason} placeholder="Client injoignable après plusieurs tentatives…" multiline />
+    <PrimaryButton title="Déclarer l’absence" tone="red" onPress={declare} loading={loading} disabled={!reason.trim()} />
+  </AppScreen>;
+}
+
+const surchargeCategories: Array<{ value: 'DESTINATION_CHANGE' | 'EXTRA_DISTANCE' | 'NIGHT' | 'SUNDAY' | 'HOLIDAY'; icon: keyof typeof Ionicons.glyphMap; title: string; subtitle: string }> = [
+  { value: 'DESTINATION_CHANGE', icon: 'location', title: 'Changement de destination', subtitle: 'Montant fixe de la grille' },
+  { value: 'EXTRA_DISTANCE', icon: 'navigate', title: 'Distance supplémentaire', subtitle: 'Facturée au kilomètre de la grille' },
+  { value: 'NIGHT', icon: 'moon', title: 'Supplément nuit', subtitle: 'Pourcentage du montant en cours' },
+  { value: 'SUNDAY', icon: 'calendar', title: 'Supplément dimanche', subtitle: 'Pourcentage du montant en cours' },
+  { value: 'HOLIDAY', icon: 'sparkles', title: 'Supplément jour férié', subtitle: 'Pourcentage du montant en cours' },
+];
+
+// Supplément appliqué strictement depuis la grille tarifaire (§2.5) : le montant est calculé et
+// tracé côté serveur, jamais saisi librement.
+export function ApplySurchargeScreen({ navigation, route }: Props<'ApplySurcharge'>) {
+  const [category, setCategory] = useState<typeof surchargeCategories[number]['value'] | null>(null);
+  const [extraKm, setExtraKm] = useState('2');
+  const [loading, setLoading] = useState(false);
+  async function apply() {
+    if (!category) return;
+    try {
+      setLoading(true);
+      const km = Number(extraKm.replace(',', '.'));
+      await api.applySurcharge(route.params.bookingId, category, category === 'EXTRA_DISTANCE' ? km : undefined);
+      Alert.alert('Supplément appliqué', 'Le client en a été informé.', [{ text: 'OK', onPress: () => navigation.goBack() }]);
+    } catch (e) { Alert.alert('Envoi impossible', e instanceof Error ? e.message : 'Réessayez.'); }
+    finally { setLoading(false); }
+  }
+  return <AppScreen><Header title="Ajouter un supplément" subtitle="Selon la grille tarifaire" onBack={() => navigation.goBack()} />
+    {surchargeCategories.map((c) => <OptionCard key={c.value} icon={c.icon} title={c.title} subtitle={c.subtitle} selected={category === c.value} onPress={() => setCategory(c.value)} />)}
+    {category === 'EXTRA_DISTANCE' ? <Field label="Kilomètres supplémentaires" value={extraKm} onChangeText={setExtraKm} keyboardType="numeric" icon="navigate" /> : null}
+    <PrimaryButton title="Appliquer le supplément" onPress={apply} loading={loading} disabled={!category} />
+  </AppScreen>;
+}
+
+// Le client a demandé l'annulation après la prise en charge : le dépanneur accepte (avec une
+// nouvelle destination, facturée via la grille) ou refuse et poursuit la livraison prévue.
+export function PostPickupCancellationDecisionScreen({ navigation, route }: Props<'PostPickupCancellationDecision'>) {
+  const [booking, setBooking] = useState<Booking | null>(null);
+  const [destination, setDestination] = useState<{ address: string; latitude: number; longitude: number } | null>(null);
+  const [garages, setGarages] = useState<Awaited<ReturnType<typeof api.garages>>>([]);
+  const [loading, setLoading] = useState(false);
+  useEffect(() => { api.booking(route.params.bookingId).then(setBooking); api.garages().then(setGarages).catch(() => undefined); }, []);
+  const request = booking?.postPickupCancellationRequests?.find((r) => r.status === 'PENDING');
+  async function accept() {
+    if (!request || !destination) return;
+    try { setLoading(true); await api.acceptPostPickupCancellation(route.params.bookingId, request.id, destination); navigation.goBack(); }
+    catch (e) { Alert.alert('Erreur', e instanceof Error ? e.message : 'Réessayez.'); }
+    finally { setLoading(false); }
+  }
+  async function reject() {
+    if (!request) return;
+    try { setLoading(true); await api.rejectPostPickupCancellation(route.params.bookingId, request.id); navigation.goBack(); }
+    catch (e) { Alert.alert('Erreur', e instanceof Error ? e.message : 'Réessayez.'); }
+    finally { setLoading(false); }
+  }
+  if (!booking || !request) return <AppScreen><Text style={ui.muted}>Aucune demande en attente.</Text></AppScreen>;
+  return <AppScreen><Header title="Demande du client" subtitle="Annulation après prise en charge" onBack={() => navigation.goBack()} />
+    <Card><Text style={ui.optionTitle}>{booking.client?.firstName ?? 'Le client'} souhaite annuler</Text>{request.reason ? <Text style={ui.muted}>{request.reason}</Text> : null}</Card>
+    <SectionTitle>Accepter avec une nouvelle destination</SectionTitle>
+    {garages.map((g) => <OptionCard key={g.id} icon="business" title={g.name} subtitle={g.address} selected={destination?.address === g.address} onPress={() => setDestination({ address: g.address, latitude: g.latitude, longitude: g.longitude })} />)}
+    <Text style={ui.muted}>Un supplément « changement de destination » de la grille sera appliqué.</Text>
+    <PrimaryButton title="Accepter et fixer la destination" tone="green" onPress={accept} loading={loading} disabled={!destination} />
+    <SecondaryButton title="Refuser et poursuivre la livraison" danger onPress={reject} />
   </AppScreen>;
 }
 

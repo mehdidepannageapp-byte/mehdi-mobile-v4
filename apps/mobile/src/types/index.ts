@@ -1,24 +1,34 @@
 export type Role = 'CLIENT' | 'DRIVER';
 export type IssueType = 'ENGINE' | 'FLAT_TIRE' | 'BATTERY' | 'ACCIDENT' | 'CHAIN' | 'OTHER';
+export type ServiceType = 'ON_SITE_REPAIR' | 'TRANSPORT';
 export type BookingStatus = 'DRAFT' | 'PAYMENT_PENDING' | 'SEARCHING' | 'SCHEDULED' | 'ASSIGNED' | 'PROPOSED' | 'DRIVER_EN_ROUTE' | 'DRIVER_ARRIVED' | 'PICKED_UP' | 'IN_TRANSIT' | 'DELIVERED' | 'COMPLETED' | 'CANCELLED' | 'PAYMENT_FAILED';
 export type PaymentMethod = 'CARD' | 'CASH';
 
 export type User = { id: string; phone: string; firstName?: string; email?: string; role: Role; isAvailable?: boolean; pushToken?: string };
 export type Vehicle = { id: string; brand: string; model: string; plate?: string; year?: number };
 export type Place = { address: string; latitude: number; longitude: number };
+export type Garage = { id: string; name: string; address: string; latitude: number; longitude: number; phone?: string };
 export type Message = { id: string; body: string; senderId: string; createdAt: string; sender?: User };
 export type Photo = { id: string; kind: 'CLIENT' | 'PICKUP' | 'DELIVERY' | 'INCIDENT'; url: string };
 export type Unavailability = { id: string; type: 'ONE_TIME' | 'RECURRING'; startAt?: string; endAt?: string; weekday?: number; startTime?: string; endTime?: string };
 export type Incident = { id: string; type: string; description?: string; status: 'OPEN' | 'RESOLVED'; authorId: string; createdAt: string };
+export type AppointmentChangeRequest = { id: string; bookingId: string; previousScheduledFor?: string; proposedFor: string; status: 'PENDING' | 'ACCEPTED' | 'REJECTED'; createdAt: string };
+export type SurchargeCategory = 'DESTINATION_CHANGE' | 'EXTRA_DISTANCE' | 'NIGHT' | 'SUNDAY' | 'HOLIDAY';
+export type Surcharge = { id: string; category: SurchargeCategory; amountCents: number; previousTotalCents: number; newTotalCents: number; createdAt: string };
+export type PostPickupCancellationRequest = { id: string; bookingId: string; reason?: string; status: 'PENDING' | 'ACCEPTED' | 'REJECTED'; newDestinationAddress?: string; createdAt: string };
+export type ContactAttempt = { id: string; method: 'CALL' | 'MESSAGE'; note?: string; createdAt: string };
+export type ClientAbsence = { id: string; reason: string; feeCents: number; createdAt: string };
 export type Booking = {
   id: string; reference: string; clientId: string; driverId?: string; vehicleId?: string;
-  issueType: IssueType; issueDescription?: string; status: BookingStatus;
+  issueType: IssueType; serviceType: ServiceType; issueDescription?: string; status: BookingStatus;
   pickupAddress: string; pickupLatitude: number; pickupLongitude: number;
-  destinationAddress: string; destinationLatitude: number; destinationLongitude: number;
-  distanceKm: number; scheduledFor?: string; proposedFor?: string; estimatedPriceCents: number; finalPriceCents?: number;
-  paymentMethod: PaymentMethod; paymentStatus?: 'PENDING' | 'AUTHORIZED' | 'PAID' | 'FAILED';
+  destinationAddress?: string; destinationLatitude?: number; destinationLongitude?: number;
+  distanceKm?: number; scheduledFor?: string; proposedFor?: string; estimatedPriceCents: number; finalPriceCents?: number;
+  paymentMethod: PaymentMethod; paymentStatus?: 'PENDING' | 'AUTHORIZED' | 'PAID' | 'FAILED'; cancellationReason?: string;
   createdAt: string; completedAt?: string; client?: User; driver?: User; vehicle?: Vehicle;
   messages?: Message[]; photos?: Photo[]; incidents?: Incident[]; invoice?: { number: string };
+  appointmentChangeRequests?: AppointmentChangeRequest[]; surcharges?: Surcharge[];
+  postPickupCancellationRequests?: PostPickupCancellationRequest[]; contactAttempts?: ContactAttempt[]; absence?: ClientAbsence;
 };
 
 export type RootStackParamList = {
@@ -28,15 +38,18 @@ export type RootStackParamList = {
   ClientTracking: { bookingId: string }; ClientCompleted: { bookingId: string }; Invoice: { bookingId: string };
   ClientHistory: undefined; ClientProfile: undefined; Support: undefined; Chat: { bookingId: string };
   Proposal: { bookingId: string }; Vehicles: undefined; Notifications: undefined;
+  AppointmentChange: { bookingId: string }; PostPickupCancellation: { bookingId: string }; PaymentFallback: { bookingId: string };
   DriverHome: undefined; MissionOffer: { bookingId: string }; DriverNavigation: { bookingId: string };
   DriverArrival: { bookingId: string }; PickupPhotos: { bookingId: string }; Transport: { bookingId: string };
   Delivery: { bookingId: string }; MissionSummary: { bookingId: string }; DriverHistory: undefined;
   DriverEarnings: undefined; DriverProfile: undefined; DriverDocuments: undefined;
   RefusalDelay: { bookingId: string }; DriverUnavailability: undefined; DriverConflicts: undefined;
-  ReportIncident: { bookingId: string };
+  ReportIncident: { bookingId: string }; OnSiteRepair: { bookingId: string }; ConvertToTransport: { bookingId: string };
+  ApplySurcharge: { bookingId: string }; DriverAbsence: { bookingId: string }; DriverAppointmentChanges: undefined;
+  PostPickupCancellationDecision: { bookingId: string };
 };
 
 export type BookingDraft = {
-  issueType?: IssueType; issueDescription?: string; brand: string; model: string; plate: string;
+  issueType?: IssueType; serviceType: ServiceType; issueDescription?: string; brand: string; model: string; plate: string;
   photos: string[]; pickup?: Place; destination?: Place; distanceKm: number; scheduledFor?: Date;
 };

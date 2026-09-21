@@ -15,10 +15,11 @@ type Props<T extends keyof RootStackParamList> = NativeStackScreenProps<RootStac
 type Dashboard = Awaited<ReturnType<typeof api.driverDashboard>>;
 
 export function DriverHomeScreen({ navigation }: Props<'DriverHome'>) {
-  const { user } = useAuth(); const [dashboard, setDashboard] = useState<Dashboard | null>(null); const [online, setOnline] = useState(Boolean(user?.isAvailable)); const [loading, setLoading] = useState(false); const [conflicts, setConflicts] = useState<Booking[]>([]);
+  const { user } = useAuth(); const [dashboard, setDashboard] = useState<Dashboard | null>(null); const [online, setOnline] = useState(Boolean(user?.isAvailable)); const [loading, setLoading] = useState(false); const [conflicts, setConflicts] = useState<Booking[]>([]); const [appointmentChanges, setAppointmentChanges] = useState<Booking[]>([]);
   const load = useCallback(() => Promise.all([
     api.driverDashboard().then((data) => { setDashboard(data); setOnline(Boolean(data.user.isAvailable)); }),
     api.driverConflicts().then(setConflicts),
+    api.driverAppointmentChanges().then(setAppointmentChanges),
   ]), []);
   useEffect(() => { void load(); const timer = setInterval(load, 5000); return () => clearInterval(timer); }, [load]);
   async function toggle(value: boolean) { try { setLoading(true); setOnline(value); await api.driverAvailability(value); await load(); } catch (e) { setOnline(!value); Alert.alert('Impossible', e instanceof Error ? e.message : 'Réessayez.'); } finally { setLoading(false); } }
@@ -26,6 +27,7 @@ export function DriverHomeScreen({ navigation }: Props<'DriverHome'>) {
   return <AppScreen><View style={styles.top}><Brand compact /><Pill label={online ? 'EN LIGNE' : 'HORS LIGNE'} tone={online ? 'green' : 'red'} /></View><View><Text style={styles.greeting}>Bonjour {user?.firstName ?? 'Mehdi'}</Text><Text style={ui.muted}>Espace professionnel</Text></View>
     <ToggleRow title={online ? 'Vous êtes disponible' : 'Vous êtes indisponible'} subtitle={online ? 'Vous pouvez recevoir une nouvelle mission' : 'Activez-vous pour recevoir les demandes'} value={online} onValueChange={toggle} />
     {conflicts.length ? <Card onPress={() => navigation.navigate('DriverConflicts')} style={{ borderColor: colors.red }}><View style={styles.between}><Pill label={`${conflicts.length} DEMANDE${conflicts.length > 1 ? 'S' : ''} EN CONFLIT`} tone="red" /><Ionicons name="chevron-forward" size={22} color={colors.text} /></View><Text style={ui.muted}>Un ou plusieurs clients attendent que vous leur proposiez un créneau.</Text></Card> : null}
+    {appointmentChanges.length ? <Card onPress={() => navigation.navigate('DriverAppointmentChanges')} style={{ borderColor: colors.yellow }}><View style={styles.between}><Pill label={`${appointmentChanges.length} MODIFICATION${appointmentChanges.length > 1 ? 'S' : ''} DE RENDEZ-VOUS`} tone="yellow" /><Ionicons name="chevron-forward" size={22} color={colors.text} /></View><Text style={ui.muted}>Un client propose un nouveau créneau pour une mission programmée.</Text></Card> : null}
     {active ? <ActiveMission booking={active} navigation={navigation} /> : <View style={styles.waiting}><View style={styles.onlineCircle}><Ionicons name={online ? 'radio' : 'pause'} size={48} color={online ? colors.green : colors.muted} /></View><Text style={styles.waitTitle}>{online ? 'En attente d’une mission' : 'Vous êtes hors ligne'}</Text><Text style={styles.center}>{online ? 'La prochaine demande vous sera envoyée automatiquement.' : 'Aucune nouvelle demande ne sera envoyée.'}</Text></View>}
     <View style={styles.stats}><Card style={styles.stat}><Text style={ui.muted}>Ce mois</Text><Money cents={dashboard?.stats.monthRevenueCents ?? 0} size={22} /></Card><Card style={styles.stat}><Text style={ui.muted}>Missions</Text><Text style={styles.statNumber}>{dashboard?.stats.completedCount ?? 0}</Text></Card></View>
     <BottomMenu navigation={navigation} role="driver" active="home" />
@@ -123,6 +125,38 @@ export function DriverConflictsScreen({ navigation }: Props<'DriverConflicts'>) 
         <PrimaryButton title="Proposer un créneau" onPress={() => navigation.navigate('RefusalDelay', { bookingId: b.id })} />
       </Card>)
       : <Empty icon="chatbubbles-outline" title="Aucun conflit en attente" text="Vous serez prévenu ici si une nouvelle demande chevauche une mission ou une indisponibilité." />}
+  </AppScreen>;
+}
+
+export function DriverAppointmentChangesScreen({ navigation }: Props<'DriverAppointmentChanges'>) {
+  const [items, setItems] = useState<Booking[]>([]);
+  const [loading, setLoading] = useState<string | null>(null);
+  const load = useCallback(() => { api.driverAppointmentChanges().then(setItems); }, []);
+  useEffect(() => { void load(); const timer = setInterval(load, 10000); return () => clearInterval(timer); }, [load]);
+  async function accept(booking: Booking) {
+    const change = booking.appointmentChangeRequests?.find((c) => c.status === 'PENDING');
+    if (!change) return;
+    try { setLoading(booking.id); await api.acceptAppointmentChange(booking.id, change.id); await load(); }
+    catch (e) { Alert.alert('Erreur', e instanceof Error ? e.message : 'Réessayez.'); }
+    finally { setLoading(null); }
+  }
+  async function reject(booking: Booking) {
+    const change = booking.appointmentChangeRequests?.find((c) => c.status === 'PENDING');
+    if (!change) return;
+    try { setLoading(booking.id); await api.rejectAppointmentChange(booking.id, change.id); await load(); }
+    catch (e) { Alert.alert('Erreur', e instanceof Error ? e.message : 'Réessayez.'); }
+    finally { setLoading(null); }
+  }
+  return <AppScreen><Header title="Modifications de rendez-vous" subtitle="Le client propose un nouveau créneau" onBack={() => navigation.goBack()} />
+    {items.length ? items.map((b) => {
+      const change = b.appointmentChangeRequests?.find((c) => c.status === 'PENDING');
+      if (!change) return null;
+      return <Card key={b.id}><Text style={ui.optionTitle}>{issueLabel(b.issueType)}</Text><Text style={ui.muted}>{b.client?.firstName ?? 'Client'} • {b.pickupAddress}</Text>
+        <View style={styles.between}><Text style={ui.muted}>Actuel</Text><Text style={ui.optionTitle}>{change.previousScheduledFor ? new Date(change.previousScheduledFor).toLocaleString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}</Text></View>
+        <View style={styles.between}><Text style={ui.muted}>Proposé</Text><Text style={[ui.optionTitle, { color: colors.yellow }]}>{new Date(change.proposedFor).toLocaleString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</Text></View>
+        <View style={styles.between}><SecondaryButton title="Refuser" danger onPress={() => void reject(b)} disabled={loading === b.id} /><PrimaryButton title="Accepter" tone="green" onPress={() => void accept(b)} loading={loading === b.id} /></View>
+      </Card>;
+    }) : <Empty icon="calendar-outline" title="Aucune demande" text="Les demandes de modification de rendez-vous apparaîtront ici." />}
   </AppScreen>;
 }
 

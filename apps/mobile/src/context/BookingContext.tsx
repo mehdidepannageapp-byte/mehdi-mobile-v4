@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useMemo, useState } from 'react';
 import type { Booking, BookingDraft } from '../types';
 
-const initialDraft: BookingDraft = { brand: '', model: '', plate: '', photos: [], distanceKm: 10 };
+const initialDraft: BookingDraft = { brand: '', model: '', plate: '', photos: [], distanceKm: 10, serviceType: 'TRANSPORT' };
 type BookingContextValue = {
   draft: BookingDraft; active: Booking | null;
   updateDraft(data: Partial<BookingDraft>): void;

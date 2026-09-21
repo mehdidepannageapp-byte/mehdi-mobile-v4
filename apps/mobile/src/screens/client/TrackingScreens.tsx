@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useStripe } from '@stripe/stripe-react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import React, { useEffect, useRef, useState } from 'react';
@@ -14,6 +15,7 @@ import { api } from '../../services/api';
 import { colors } from '../../theme';
 import type { Booking, RootStackParamList } from '../../types';
 import { issueLabel, labelStatus } from './HomeScreens';
+import { Chip } from './RequestScreens';
 
 type Props<T extends keyof RootStackParamList> = NativeStackScreenProps<RootStackParamList, T>;
 
@@ -56,7 +58,73 @@ export function ClientTrackingScreen({ navigation, route }: Props<'ClientTrackin
   const lat = driverLocation?.latitude ?? booking.pickupLatitude; const lng = driverLocation?.longitude ?? booking.pickupLongitude;
   return <AppScreen><Header title="Suivi en direct" subtitle={booking.reference} onBack={() => navigation.navigate('ClientHome')} /><View style={styles.mapWrap}><MapView style={StyleSheet.absoluteFill} initialRegion={{ latitude: lat, longitude: lng, latitudeDelta: .08, longitudeDelta: .08 }}><Marker coordinate={{ latitude: booking.pickupLatitude, longitude: booking.pickupLongitude }} title="Votre position" pinColor={colors.red} />{driverLocation ? <Marker coordinate={driverLocation} title="Dépanneur"><View style={styles.driverMarker}><Ionicons name="construct" color={colors.bg} size={19} /></View></Marker> : null}</MapView><View style={styles.mapStatus}><Pill label={labelStatus(booking.status)} tone="green" /></View></View>
     <Card><View style={styles.driver}><View style={styles.driverAvatar}><Text style={styles.driverLetter}>M</Text></View><View style={{ flex: 1 }}><Text style={ui.optionTitle}>{booking.driver?.firstName ?? 'Votre dépanneur'}</Text><Text style={ui.muted}>Professionnel Mehdi Dépannage • ★ 4,9</Text></View></View><View style={styles.actionsRow}><SecondaryButton title="Message" icon="chatbubble" onPress={() => navigation.navigate('Chat', { bookingId: booking.id })} /><SecondaryButton title="Appeler" icon="call" onPress={() => callNumber(booking.driver?.phone, 'votre dépanneur')} /></View></Card>
+    {booking.status === 'SCHEDULED' ? <SecondaryButton title="Modifier le rendez-vous" icon="calendar" onPress={() => navigation.navigate('AppointmentChange', { bookingId: booking.id })} /> : null}
+    {(booking.status === 'PICKED_UP' || booking.status === 'IN_TRANSIT') ? <SecondaryButton title="Demander l’annulation" danger icon="close-circle" onPress={() => navigation.navigate('PostPickupCancellation', { bookingId: booking.id })} /> : null}
+    {booking.status === 'DELIVERED' && booking.paymentMethod === 'CASH' ? <SecondaryButton title="Payer par carte" icon="card" onPress={() => navigation.navigate('PaymentFallback', { bookingId: booking.id })} /> : null}
     <Timeline status={booking.status} />
+  </AppScreen>;
+}
+
+// Modification de rendez-vous (client) : propose un nouveau créneau, l'ancien reste valide tant
+// que le dépanneur n'a pas tranché.
+export function AppointmentChangeScreen({ navigation, route }: Props<'AppointmentChange'>) {
+  const [day, setDay] = useState(1); const [hour, setHour] = useState(12); const [loading, setLoading] = useState(false); const [sent, setSent] = useState(false);
+  async function submit() {
+    try {
+      setLoading(true);
+      const date = new Date(); date.setDate(date.getDate() + day); date.setHours(hour, 0, 0, 0);
+      await api.requestAppointmentChange(route.params.bookingId, date.toISOString());
+      setSent(true);
+    } catch (e) { Alert.alert('Envoi impossible', e instanceof Error ? e.message : 'Réessayez.'); }
+    finally { setLoading(false); }
+  }
+  if (sent) return <AppScreen><Header title="Modifier le rendez-vous" onBack={() => navigation.goBack()} /><Card style={{ alignItems: 'center' }}><Ionicons name="checkmark-circle" size={48} color={colors.green} /><Text style={ui.optionTitle}>Demande envoyée</Text><Text style={ui.muted}>Le dépanneur doit encore l’accepter. Votre rendez-vous actuel reste valable en attendant.</Text></Card><SecondaryButton title="Retour" onPress={() => navigation.goBack()} /></AppScreen>;
+  return <AppScreen><Header title="Modifier le rendez-vous" subtitle="Proposez un nouveau créneau" onBack={() => navigation.goBack()} />
+    <Card><Text style={ui.label}>Jour</Text><View style={styles.chips}>{[{ d: 1, t: 'Demain' }, { d: 2, t: 'Après-demain' }, { d: 7, t: 'Dans 7 jours' }].map((x) => <Chip key={x.d} text={x.t} active={day === x.d} onPress={() => setDay(x.d)} />)}</View><Text style={ui.label}>Créneau souhaité</Text><View style={styles.chips}>{[9, 12, 15, 18].map((h) => <Chip key={h} text={`${h}h00`} active={hour === h} onPress={() => setHour(h)} />)}</View></Card>
+    <Text style={ui.muted}>Le dépanneur doit accepter ce nouveau créneau. Votre rendez-vous actuel reste valable en attendant sa réponse.</Text>
+    <PrimaryButton title="Envoyer la demande" onPress={submit} loading={loading} />
+  </AppScreen>;
+}
+
+// Annulation après prise en charge (§2.6) : le client soumet une demande, le dépanneur décide.
+export function PostPickupCancellationScreen({ navigation, route }: Props<'PostPickupCancellation'>) {
+  const [reason, setReason] = useState(''); const [loading, setLoading] = useState(false); const [sent, setSent] = useState(false);
+  async function submit() {
+    try { setLoading(true); await api.requestPostPickupCancellation(route.params.bookingId, reason.trim() || undefined); setSent(true); }
+    catch (e) { Alert.alert('Envoi impossible', e instanceof Error ? e.message : 'Réessayez.'); }
+    finally { setLoading(false); }
+  }
+  if (sent) return <AppScreen><Header title="Demande d’annulation" onBack={() => navigation.goBack()} /><Card style={{ alignItems: 'center' }}><Ionicons name="checkmark-circle" size={48} color={colors.green} /><Text style={ui.optionTitle}>Demande envoyée</Text><Text style={ui.muted}>Le dépanneur va l’examiner. La livraison se poursuit normalement en attendant sa réponse.</Text></Card><SecondaryButton title="Retour" onPress={() => navigation.goBack()} /></AppScreen>;
+  return <AppScreen><Header title="Demander l’annulation" subtitle="La moto a déjà été prise en charge" onBack={() => navigation.goBack()} />
+    <Card><Text style={ui.muted}>Votre demande sera transmise au dépanneur, qui pourra l’accepter (avec une nouvelle destination) ou la refuser et poursuivre la livraison prévue.</Text></Card>
+    <Field label="Motif (facultatif)" value={reason} onChangeText={setReason} placeholder="Expliquez votre demande…" multiline />
+    <PrimaryButton title="Envoyer la demande" tone="red" onPress={submit} loading={loading} />
+  </AppScreen>;
+}
+
+// Bascule espèces → carte (§2.x) : le client règle dans l'application quand il n'a pas assez
+// d'espèces sur place, en réutilisant le même flux Stripe que la réservation initiale.
+export function PaymentFallbackScreen({ navigation, route }: Props<'PaymentFallback'>) {
+  const { initPaymentSheet, presentPaymentSheet } = useStripe();
+  const [loading, setLoading] = useState(false);
+  async function pay() {
+    try {
+      setLoading(true);
+      const payment = await api.paymentFallback(route.params.bookingId);
+      if (!payment.clientSecret.startsWith('demo_')) {
+        const init = await initPaymentSheet({ merchantDisplayName: 'Mehdi Dépannage', paymentIntentClientSecret: payment.clientSecret, returnURL: 'mehdi-depannage://stripe-redirect', applePay: { merchantCountryCode: 'FR' }, googlePay: { merchantCountryCode: 'FR', testEnv: true }, style: 'alwaysDark' });
+        if (init.error) throw new Error(init.error.message);
+        const result = await presentPaymentSheet();
+        if (result.error) throw new Error(result.error.message);
+      }
+      await api.confirmPaymentFallback(route.params.bookingId);
+      navigation.goBack();
+    } catch (e) { Alert.alert('Paiement impossible', e instanceof Error ? e.message : 'Réessayez.'); }
+    finally { setLoading(false); }
+  }
+  return <AppScreen><Header title="Payer par carte" subtitle="Espèces insuffisantes" onBack={() => navigation.goBack()} />
+    <Card style={{ alignItems: 'center', paddingVertical: 24 }}><Ionicons name="card" size={48} color={colors.yellow} /><Text style={ui.optionTitle}>Réglez le solde par carte</Text><Text style={[ui.muted, { textAlign: 'center' }]}>Le dépanneur ne recevra plus d’espèces pour cette mission ; le paiement se termine ici, de façon sécurisée.</Text></Card>
+    <PrimaryButton title="Payer par carte" icon="card" onPress={pay} loading={loading} />
   </AppScreen>;
 }
 
@@ -86,5 +154,5 @@ export function InvoiceScreen({ navigation, route }: Props<'Invoice'>) {
 const styles = StyleSheet.create({
   searchArea: { flex: 1, minHeight: 300, justifyContent: 'center', alignItems: 'center', gap: 15 }, radar: { width: 190, height: 190, borderRadius: 95, borderWidth: 1, borderColor: '#5A4A00', alignItems: 'center', justifyContent: 'center', backgroundColor: '#151509' }, radar2: { width: 132, height: 132, borderRadius: 66, borderWidth: 1, borderColor: '#8A7000', alignItems: 'center', justifyContent: 'center' }, radar3: { width: 72, height: 72, borderRadius: 36, backgroundColor: colors.yellow, alignItems: 'center', justifyContent: 'center' }, title: { color: colors.text, fontWeight: '900', fontSize: 24, textAlign: 'center' }, center: { color: colors.muted, lineHeight: 20, textAlign: 'center', maxWidth: 300 }, row: { flexDirection: 'row', alignItems: 'center', gap: 10 }, itemText: { color: colors.text, fontWeight: '600', flex: 1 },
   mapWrap: { height: 280, borderRadius: 18, overflow: 'hidden', borderWidth: 1, borderColor: colors.border }, mapStatus: { position: 'absolute', top: 12, left: 12 }, driverMarker: { width: 38, height: 38, borderRadius: 19, backgroundColor: colors.yellow, borderWidth: 3, borderColor: colors.white, alignItems: 'center', justifyContent: 'center' }, driver: { flexDirection: 'row', alignItems: 'center', gap: 12 }, driverAvatar: { width: 50, height: 50, borderRadius: 25, backgroundColor: colors.surface2, alignItems: 'center', justifyContent: 'center' }, driverLetter: { color: colors.yellow, fontSize: 20, fontWeight: '900' }, actions: { marginTop: 4 }, actionsRow: { flexDirection: 'row', gap: 10, marginTop: 4 }, timelineRow: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 34 }, timelineDot: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
-  success: { alignItems: 'center', gap: 12, marginVertical: 20 }, successIcon: { width: 100, height: 100, borderRadius: 50, backgroundColor: colors.green, alignItems: 'center', justifyContent: 'center' }, stars: { flexDirection: 'row', gap: 5 }, comment: { backgroundColor: colors.bg, borderRadius: 10, padding: 14, width: '100%' }, invoice: { alignItems: 'center', paddingVertical: 28 }, invoiceBrand: { color: colors.yellow, fontSize: 22, fontWeight: '900' }, invoiceLine: { height: 1, backgroundColor: colors.border, width: '100%', marginVertical: 12 },
+  success: { alignItems: 'center', gap: 12, marginVertical: 20 }, successIcon: { width: 100, height: 100, borderRadius: 50, backgroundColor: colors.green, alignItems: 'center', justifyContent: 'center' }, stars: { flexDirection: 'row', gap: 5 }, comment: { backgroundColor: colors.bg, borderRadius: 10, padding: 14, width: '100%' }, invoice: { alignItems: 'center', paddingVertical: 28 }, invoiceBrand: { color: colors.yellow, fontSize: 22, fontWeight: '900' }, invoiceLine: { height: 1, backgroundColor: colors.border, width: '100%', marginVertical: 12 }, chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
 });
