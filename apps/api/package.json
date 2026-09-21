@@ -11,7 +11,8 @@
     "test": "vitest run src",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev --name init",
-    "prisma:seed": "tsx prisma/seed.ts"
+    "prisma:seed": "tsx prisma/seed.ts",
+    "recipe": "tsx scripts/acceptance-recipe.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
