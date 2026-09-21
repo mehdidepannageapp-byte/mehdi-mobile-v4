@@ -202,6 +202,43 @@ describe('PATCH /bookings/:id/status (transitions)', () => {
   });
 });
 
+describe('POST /bookings/:id/refuse', () => {
+  it('refuse pour un compte client avec 403', async () => {
+    const res = await request(app).post('/bookings/booking-1/refuse').set('Authorization', `Bearer ${clientToken}`).send({ delayMinutes: 30 });
+    expect(res.status).toBe(403);
+  });
+
+  it('rejette un délai qui n’est pas 30, 60 ou 90 minutes', async () => {
+    const res = await request(app).post('/bookings/booking-1/refuse').set('Authorization', `Bearer ${driverToken}`).send({ delayMinutes: 45 });
+    expect(res.status).toBe(400);
+    expect(prismaMock.booking.update).not.toHaveBeenCalled();
+  });
+
+  it('refuse si la mission n’est pas au statut ASSIGNED', async () => {
+    prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-1', status: BookingStatus.SEARCHING });
+    const res = await request(app).post('/bookings/booking-1/refuse').set('Authorization', `Bearer ${driverToken}`).send({ delayMinutes: 30 });
+    expect(res.status).toBe(409);
+  });
+
+  it('propose un créneau ferme et passe la course en PROPOSED, sans relancer de recherche', async () => {
+    prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-1', status: BookingStatus.ASSIGNED, driverId: 'driver-1' });
+    prismaMock.booking.update.mockResolvedValue({ id: 'booking-1', status: BookingStatus.PROPOSED });
+
+    const before = Date.now();
+    const res = await request(app).post('/bookings/booking-1/refuse').set('Authorization', `Bearer ${driverToken}`).send({ delayMinutes: 60 });
+    const after = Date.now();
+
+    expect(res.status).toBe(200);
+    expect(prismaMock.booking.update).toHaveBeenCalledTimes(1);
+    const call = prismaMock.booking.update.mock.calls[0][0];
+    expect(call.where).toEqual({ id: 'booking-1' });
+    expect(call.data.status).toBe(BookingStatus.PROPOSED);
+    expect(call.data.retryAfter).toBeNull();
+    expect(call.data.proposedFor.getTime()).toBeGreaterThanOrEqual(before + 60 * 60_000);
+    expect(call.data.proposedFor.getTime()).toBeLessThanOrEqual(after + 60 * 60_000);
+  });
+});
+
 describe('POST /bookings/:id/cancel', () => {
   it('refuse d\'annuler une course déjà terminée', async () => {
     prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-1', status: BookingStatus.COMPLETED });

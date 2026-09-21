@@ -18,6 +18,7 @@ enum BookingStatus {
   SEARCHING
   SCHEDULED
   ASSIGNED
+  PROPOSED
   DRIVER_EN_ROUTE
   DRIVER_ARRIVED
   PICKED_UP
@@ -114,6 +115,7 @@ model Booking {
   destinationLongitude   Float
   distanceKm             Float
   scheduledFor           DateTime?
+  proposedFor            DateTime?
   retryAfter             DateTime?
   estimatedPriceCents    Int
   finalPriceCents        Int?

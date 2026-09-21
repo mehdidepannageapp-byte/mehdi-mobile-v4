@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: mehdi_local
       POSTGRES_DB: mehdi_depannage
     ports:
-      - "5434:5432"
+      - "5435:5432"
     volumes:
       - mehdi_postgres:/var/lib/postgresql/data
     healthcheck:

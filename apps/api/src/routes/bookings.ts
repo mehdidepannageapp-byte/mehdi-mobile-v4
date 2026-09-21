@@ -162,11 +162,18 @@ bookingsRouter.patch('/:id/status', asyncHandler(async (req, res) => {
   res.json(updated);
 }));
 
+// Un seul dépanneur existe : un refus ne relance pas de recherche automatique. Le dépanneur propose
+// à la place un créneau ferme (30 min / 1h / 1h30), que le client devra accepter ou refuser.
 bookingsRouter.post('/:id/refuse', asyncHandler(async (req, res) => {
   if (req.auth!.role !== UserRole.DRIVER) return res.status(403).end();
+  const { delayMinutes } = z.object({ delayMinutes: z.union([z.literal(30), z.literal(60), z.literal(90)]) }).parse(req.body);
   const booking = await authorizedBooking(String(req.params.id), req.auth!.userId);
   if (!booking || booking.status !== BookingStatus.ASSIGNED) return res.status(409).json({ error: 'Mission non refusable' });
-  const updated = await prisma.booking.update({ where: { id: booking.id }, data: { driverId: null, status: BookingStatus.SEARCHING, retryAfter: new Date(Date.now() + pricing.retryMinutes * 60_000) } });
+  const proposedFor = new Date(Date.now() + delayMinutes * 60_000);
+  const updated = await prisma.booking.update({
+    where: { id: booking.id },
+    data: { status: BookingStatus.PROPOSED, proposedFor, retryAfter: null },
+  });
   res.json(updated);
 }));
 
