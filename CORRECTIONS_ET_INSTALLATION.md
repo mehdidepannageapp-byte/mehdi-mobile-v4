@@ -33,7 +33,7 @@ unzip -o ~/Downloads/correctif-mehdi-v3.zip -d .
 
 Si le ZIP est téléchargé ailleurs ou renommé, remplacer son chemin par le chemin exact. Le correctif contient uniquement les fichiers de code, documentation et exemples de configuration changés : il ne contient aucun `.env` réel, fichier `node_modules`, sauvegarde PostgreSQL ou donnée utilisateur et ne remplace pas la configuration Docker locale.
 
-4. Vérifier que `apps/api/.env` utilise toujours `localhost:5434` pour `DATABASE_URL`, **sans partager son contenu**. Votre `docker-compose.yml` local doit toujours publier `5434:5432`.
+4. Vérifier que `apps/api/.env` utilise toujours `localhost:5435` pour `DATABASE_URL`, **sans partager son contenu**. Votre `docker-compose.yml` local doit toujours publier `5435:5432`.
 5. Redémarrer l'API, depuis le dossier du projet :
 
 ```bash

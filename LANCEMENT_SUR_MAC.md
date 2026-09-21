@@ -22,7 +22,7 @@ cp apps/mobile/.env.example apps/mobile/.env
 
 Les clés externes peuvent rester vides pour le premier lancement. L’application utilisera les données et paiements de démonstration.
 
-Sur le Mac où les ports PostgreSQL 5432 et 5433 sont déjà occupés par d'autres projets, cet exemple utilise le port **5434** côté Mac (`5434:5432` dans Docker). `apps/api/.env` doit employer `localhost:5434` pour sa `DATABASE_URL`.
+Sur le Mac où les ports PostgreSQL 5432, 5433 et 5434 sont déjà occupés par d'autres projets, cet exemple utilise le port **5435** côté Mac (`5435:5432` dans Docker). `apps/api/.env` doit employer `localhost:5435` pour sa `DATABASE_URL`.
 
 ## 4. Démarrer PostgreSQL
 
