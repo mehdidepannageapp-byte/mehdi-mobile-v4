@@ -6,6 +6,7 @@ const prismaMock = vi.hoisted(() => ({
   otpCode: { create: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
   user: { upsert: vi.fn(), update: vi.fn(), delete: vi.fn(), findUniqueOrThrow: vi.fn(), findUnique: vi.fn() },
   booking: { findFirst: vi.fn() },
+  notificationPreference: { upsert: vi.fn() },
 }));
 
 vi.mock('../config/prisma.js', () => ({ prisma: prismaMock }));
@@ -185,5 +186,36 @@ describe('DELETE /auth/me', () => {
 
     expect(res.status).toBe(400);
     expect(prismaMock.booking.findFirst).not.toHaveBeenCalled();
+  });
+});
+
+describe('Préférences de notification (B06)', () => {
+  it('crée une préférence par défaut (push activé) au premier accès', async () => {
+    const token = signToken({ userId: 'client-1', role: 'CLIENT' });
+    prismaMock.notificationPreference.upsert.mockResolvedValue({ id: 'pref-1', userId: 'client-1', pushEnabled: true });
+
+    const res = await request(app).get('/auth/me/notifications').set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.pushEnabled).toBe(true);
+    expect(prismaMock.notificationPreference.upsert).toHaveBeenCalledWith({ where: { userId: 'client-1' }, update: {}, create: { userId: 'client-1' } });
+  });
+
+  it('enregistre durablement la désactivation du push', async () => {
+    const token = signToken({ userId: 'client-1', role: 'CLIENT' });
+    prismaMock.notificationPreference.upsert.mockResolvedValue({ id: 'pref-1', userId: 'client-1', pushEnabled: false });
+
+    const res = await request(app).patch('/auth/me/notifications').set('Authorization', `Bearer ${token}`).send({ pushEnabled: false });
+
+    expect(res.status).toBe(200);
+    expect(res.body.pushEnabled).toBe(false);
+    expect(prismaMock.notificationPreference.upsert).toHaveBeenCalledWith({
+      where: { userId: 'client-1' }, update: { pushEnabled: false }, create: { userId: 'client-1', pushEnabled: false },
+    });
+  });
+
+  it('refuse une requête non authentifiée', async () => {
+    const res = await request(app).get('/auth/me/notifications');
+    expect(res.status).toBe(401);
   });
 });

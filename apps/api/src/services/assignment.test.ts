@@ -125,7 +125,7 @@ describe('reassignStaleMissions', () => {
       where: { id: 'booking-1' },
       data: { driverId: null, status: BookingStatus.SEARCHING, retryAfter: expect.any(Date) },
     });
-    expect(notificationMock.sendPush).toHaveBeenCalledWith('push-1', expect.any(String), expect.any(String), { bookingId: 'booking-1' });
+    expect(notificationMock.sendPush).toHaveBeenCalledWith(expect.objectContaining({ pushToken: 'push-1' }), expect.any(String), expect.any(String), { bookingId: 'booking-1' });
   });
 
   it('laisse la mission intacte si le chauffeur a envoyé une position récente', async () => {

@@ -65,6 +65,27 @@ authRouter.patch('/me', requireAuth, asyncHandler(async (req, res) => {
   res.json(user);
 }));
 
+// B06 : préférences de notification facultatives (push). Ne concerne jamais les communications
+// transactionnelles obligatoires (confirmation de réservation, facture), toujours envoyées.
+authRouter.get('/me/notifications', requireAuth, asyncHandler(async (req, res) => {
+  const preference = await prisma.notificationPreference.upsert({
+    where: { userId: req.auth!.userId },
+    update: {},
+    create: { userId: req.auth!.userId },
+  });
+  res.json(preference);
+}));
+
+authRouter.patch('/me/notifications', requireAuth, asyncHandler(async (req, res) => {
+  const { pushEnabled } = z.object({ pushEnabled: z.boolean() }).parse(req.body);
+  const preference = await prisma.notificationPreference.upsert({
+    where: { userId: req.auth!.userId },
+    update: { pushEnabled },
+    create: { userId: req.auth!.userId, pushEnabled },
+  });
+  res.json(preference);
+}));
+
 authRouter.delete('/me', requireAuth, asyncHandler(async (req, res) => {
   if (req.auth!.role === UserRole.DRIVER) return res.status(400).json({ error: 'Le compte professionnel ne peut pas être supprimé depuis l’application' });
   const hasHistory = await prisma.booking.findFirst({ where: { clientId: req.auth!.userId }, select: { id: true } });

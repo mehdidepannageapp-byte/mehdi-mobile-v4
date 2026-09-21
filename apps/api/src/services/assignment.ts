@@ -69,7 +69,7 @@ export async function assignSingleDriver(bookingId: string) {
   }
   const updated = await prisma.booking.update({ where: { id: booking.id }, data: { driverId: driver.id, status: BookingStatus.ASSIGNED, retryAfter: null } });
   await Promise.all([
-    sendPush(driver.pushToken, 'Nouvelle mission', `${booking.issueType} à ${booking.pickupAddress}`, { bookingId }),
+    sendPush(driver, 'Nouvelle mission', `${booking.issueType} à ${booking.pickupAddress}`, { bookingId }),
     sendSms(driver.phone, `Nouvelle mission Mehdi Dépannage : ${booking.pickupAddress}`),
   ]);
   return updated;
@@ -94,7 +94,7 @@ export async function reassignStaleMissions() {
     if (recentLocation) continue;
     logger.warn({ bookingId: booking.id, driverId: booking.driverId }, 'Chauffeur injoignable, réassignation de la mission');
     await prisma.booking.update({ where: { id: booking.id }, data: { driverId: null, status: BookingStatus.SEARCHING, retryAfter: new Date() } });
-    await sendPush(booking.client.pushToken, 'Recherche d’un autre dépanneur', 'Votre dépanneur ne répond plus, nous relançons la recherche.', { bookingId: booking.id });
+    await sendPush(booking.client, 'Recherche d’un autre dépanneur', 'Votre dépanneur ne répond plus, nous relançons la recherche.', { bookingId: booking.id });
     void assignSingleDriver(booking.id);
   }
 }

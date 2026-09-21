@@ -1,4 +1,4 @@
-import { BookingStatus, IssueType, PaymentMethod, PaymentStatus, PhotoKind, UserRole } from '@prisma/client';
+import { BookingStatus, IssueType, PaymentMethod, PaymentStatus, PhotoKind, UserRole, type FinancialStatus } from '@prisma/client';
 import { Router } from 'express';
 import multer from 'multer';
 import path from 'path';
@@ -8,6 +8,7 @@ import { isInServiceArea } from '../config/service-area.js';
 import { prisma } from '../config/prisma.js';
 import { requireAuth } from '../middleware/auth.js';
 import { assignSingleDriver } from '../services/assignment.js';
+import { decideCancellation } from '../services/cancellation.js';
 import { InvalidImageError, processUploadedImage } from '../services/image.js';
 import { createInvoicePdf } from '../services/invoice.js';
 import { sendPush, sendSms } from '../services/notification.js';
@@ -47,7 +48,7 @@ function reference() {
 async function authorizedBooking(id: string, userId: string) {
   return prisma.booking.findFirst({
     where: { id, OR: [{ clientId: userId }, { driverId: userId }] },
-    include: { client: true, driver: true, vehicle: true, photos: true, messages: { include: { sender: true }, orderBy: { createdAt: 'asc' } }, invoice: true, review: true },
+    include: { client: true, driver: true, vehicle: true, photos: true, messages: { include: { sender: true }, orderBy: { createdAt: 'asc' } }, invoice: true, review: true, incidents: { orderBy: { createdAt: 'desc' } } },
   });
 }
 
@@ -151,14 +152,21 @@ bookingsRouter.patch('/:id/status', asyncHandler(async (req, res) => {
   const allowed = transitions[booking.status] ?? [];
   if (!allowed.includes(status)) return res.status(409).json({ error: `Transition ${booking.status} → ${status} impossible` });
   if (status === BookingStatus.COMPLETED && booking.paymentMethod === PaymentMethod.CASH && cashReceived !== true) return res.status(409).json({ error: 'Confirmez la réception du paiement en espèces' });
+  // B07 : une photo de livraison est obligatoire avant de clôturer la mission.
+  if (status === BookingStatus.COMPLETED) {
+    const deliveryPhotoCount = await prisma.photo.count({ where: { bookingId: booking.id, kind: PhotoKind.DELIVERY } });
+    if (deliveryPhotoCount === 0) return res.status(409).json({ error: 'Au moins une photo de livraison est requise avant de clôturer la mission' });
+  }
   const finalAmount = booking.finalPriceCents ?? booking.estimatedPriceCents;
   const updated = await prisma.booking.update({ where: { id: booking.id }, data: { status, ...(status === BookingStatus.COMPLETED ? { completedAt: new Date(), finalPriceCents: finalAmount, paymentStatus: PaymentStatus.PAID } : {}) } });
-  if (status === BookingStatus.COMPLETED && booking.stripePaymentIntentId) {
-    await captureAuthorization(booking.stripePaymentIntentId, finalAmount);
+  // B01 : la facture doit être créée à toute clôture payée, quel que soit le moyen de paiement.
+  // prisma.invoice.upsert est idempotent (bookingId unique) : pas de double facture en cas de retry.
+  if (status === BookingStatus.COMPLETED) {
+    if (booking.stripePaymentIntentId) await captureAuthorization(booking.stripePaymentIntentId, finalAmount);
     await prisma.invoice.upsert({ where: { bookingId: booking.id }, update: { amountCents: finalAmount }, create: { bookingId: booking.id, amountCents: finalAmount, number: `F-${new Date().getFullYear()}-${booking.reference.slice(-6)}` } });
   }
   const recipient = req.auth!.role === UserRole.DRIVER ? booking.client : booking.driver;
-  await sendPush(recipient?.pushToken, 'Intervention mise à jour', status.replaceAll('_', ' '), { bookingId: booking.id });
+  await sendPush(recipient, 'Intervention mise à jour', status.replaceAll('_', ' '), { bookingId: booking.id });
   res.json(updated);
 }));
 
@@ -198,13 +206,70 @@ bookingsRouter.post('/:id/proposal/accept', asyncHandler(async (req, res) => {
   res.json(updated);
 }));
 
+const POST_PICKUP_STATUSES: BookingStatus[] = [BookingStatus.PICKED_UP, BookingStatus.IN_TRANSIT, BookingStatus.DELIVERED];
+
+// B02 : applique les règles d'annulation du §2.6 (gratuite à l'avance, 50% le jour même par
+// carte, gratuite le jour même en espèces), calculées côté serveur uniquement (jamais depuis le
+// mobile). Après prise en charge, le client ne peut plus annuler directement — voir
+// POST /:id/post-pickup-cancellation pour la demande soumise au dépanneur.
 bookingsRouter.post('/:id/cancel', asyncHandler(async (req, res) => {
   const { reason } = z.object({ reason: z.string().max(250).optional() }).parse(req.body);
   const booking = await authorizedBooking(String(req.params.id), req.auth!.userId);
   if (!booking) return res.status(404).json({ error: 'Demande introuvable' });
-  if (booking.status === BookingStatus.COMPLETED || booking.status === BookingStatus.CANCELLED) return res.status(409).json({ error: 'Cette demande ne peut plus être annulée' });
-  if (booking.stripePaymentIntentId) await cancelAuthorization(booking.stripePaymentIntentId);
-  res.json(await prisma.booking.update({ where: { id: booking.id }, data: { status: BookingStatus.CANCELLED, cancellationReason: reason } }));
+  if (booking.status === BookingStatus.COMPLETED || booking.status === BookingStatus.CANCELLED) {
+    return res.status(409).json({ error: 'Cette demande ne peut plus être annulée' });
+  }
+  if (req.auth!.role === UserRole.CLIENT && POST_PICKUP_STATUSES.includes(booking.status)) {
+    return res.status(409).json({ error: 'La moto a déjà été prise en charge : soumettez une demande au dépanneur' });
+  }
+
+  // Idempotence : un deuxième clic ne recalcule ni ne facture une seconde fois.
+  const existingRecord = await prisma.cancellationRecord.findUnique({ where: { bookingId: booking.id } });
+  if (existingRecord) {
+    return res.json(await prisma.booking.findUniqueOrThrow({ where: { id: booking.id } }));
+  }
+
+  const decision = decideCancellation({
+    scheduledFor: booking.scheduledFor,
+    paymentMethod: booking.paymentMethod,
+    acceptedAmountCents: booking.estimatedPriceCents,
+  });
+  // Rien n'a jamais été préautorisé (ex. annulation avant même l'étape de paiement carte) :
+  // il n'y a rien à facturer, quelle que soit la règle calculée.
+  const feeCents = booking.stripePaymentIntentId ? decision.feeCents : 0;
+
+  let financialStatus: FinancialStatus = 'NOT_APPLICABLE';
+  if (booking.stripePaymentIntentId) {
+    if (feeCents > 0) {
+      await captureAuthorization(booking.stripePaymentIntentId, feeCents);
+      financialStatus = 'CAPTURED';
+    } else {
+      await cancelAuthorization(booking.stripePaymentIntentId);
+      financialStatus = 'RELEASED';
+    }
+  }
+
+  await prisma.$transaction([
+    prisma.booking.update({
+      where: { id: booking.id },
+      data: { status: BookingStatus.CANCELLED, cancellationReason: reason, ...(feeCents > 0 ? { finalPriceCents: feeCents, paymentStatus: PaymentStatus.PAID } : {}) },
+    }),
+    prisma.cancellationRecord.create({
+      data: { bookingId: booking.id, initiatedById: req.auth!.userId, rule: decision.rule, basisAmountCents: decision.basisAmountCents, feeCents, financialStatus, reason },
+    }),
+  ]);
+  res.json(await prisma.booking.findUniqueOrThrow({ where: { id: booking.id }, include: { cancellationRecord: true } }));
+}));
+
+// B03 : incident réellement persisté (remplace l'alerte locale factice côté mobile).
+bookingsRouter.post('/:id/incidents', asyncHandler(async (req, res) => {
+  const { type, description } = z.object({ type: z.string().trim().min(1).max(100), description: z.string().trim().max(1000).optional() }).parse(req.body);
+  const booking = await authorizedBooking(String(req.params.id), req.auth!.userId);
+  if (!booking) return res.status(404).json({ error: 'Demande introuvable' });
+  const incident = await prisma.incident.create({ data: { bookingId: booking.id, type, description, authorId: req.auth!.userId } });
+  const recipient = req.auth!.role === UserRole.DRIVER ? booking.client : booking.driver;
+  await sendPush(recipient, 'Incident signalé', type, { bookingId: booking.id });
+  res.status(201).json(incident);
 }));
 
 bookingsRouter.post('/:id/photos', asyncHandler(async (req, res) => {
