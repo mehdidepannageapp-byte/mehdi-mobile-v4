@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const prismaMock = vi.hoisted(() => ({
-  booking: { findMany: vi.fn(), update: vi.fn(), findUnique: vi.fn() },
+  booking: { findMany: vi.fn(), update: vi.fn(), findUnique: vi.fn(), count: vi.fn() },
   liveLocation: { findFirst: vi.fn() },
   user: { findFirst: vi.fn() },
   unavailability: { count: vi.fn() },
+  message: { findFirst: vi.fn(), create: vi.fn() },
 }));
 vi.mock('../config/prisma.js', () => ({ prisma: prismaMock }));
 
@@ -17,6 +18,8 @@ const { BookingStatus } = await import('@prisma/client');
 beforeEach(() => {
   vi.clearAllMocks();
   prismaMock.unavailability.count.mockResolvedValue(0);
+  prismaMock.booking.count.mockResolvedValue(0);
+  prismaMock.message.findFirst.mockResolvedValue(null);
 });
 
 describe('assignSingleDriver', () => {
@@ -59,6 +62,51 @@ describe('assignSingleDriver', () => {
     expect(prismaMock.unavailability.count).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ type: 'ONE_TIME', startAt: { lte: scheduledFor }, endAt: { gte: scheduledFor } }),
     }));
+  });
+
+  it('envoie un message automatique au client si le dépanneur est déjà engagé sur une autre mission', async () => {
+    prismaMock.booking.findUnique.mockResolvedValue({ id: 'booking-1', status: BookingStatus.SEARCHING, scheduledFor: null, client: {} });
+    // La requête principale (driverJobs: none) ne trouve personne puisqu'il est déjà occupé ; celle de
+    // notifyConflictIfApplicable (par rôle uniquement) retrouve bien le dépanneur.
+    prismaMock.user.findFirst.mockImplementation((args: { where: { isAvailable?: boolean } }) =>
+      Promise.resolve(args.where.isAvailable ? null : { id: 'driver-1', pushToken: null, phone: '+33600000000' }));
+    prismaMock.unavailability.count.mockResolvedValue(0);
+    prismaMock.booking.count.mockResolvedValue(1); // engagé sur une autre course
+    prismaMock.booking.update.mockResolvedValue({});
+
+    await assignSingleDriver('booking-1');
+
+    expect(prismaMock.message.create).toHaveBeenCalledWith({
+      data: { bookingId: 'booking-1', senderId: 'driver-1', body: expect.stringContaining('vers quelle heure ça vous arrangerait') },
+    });
+  });
+
+  it('n’envoie pas de message si le dépanneur est simplement hors ligne (pas de conflit réel)', async () => {
+    prismaMock.booking.findUnique.mockResolvedValue({ id: 'booking-1', status: BookingStatus.SEARCHING, scheduledFor: null, client: {} });
+    // La requête principale (isAvailable:true) ne trouve personne ; celle de notifyConflictIfApplicable
+    // (par rôle uniquement) retrouve bien le dépanneur, simplement hors ligne.
+    prismaMock.user.findFirst.mockImplementation((args: { where: { isAvailable?: boolean } }) =>
+      Promise.resolve(args.where.isAvailable ? null : { id: 'driver-1', pushToken: null, phone: '+33600000000' }));
+    prismaMock.unavailability.count.mockResolvedValue(0);
+    prismaMock.booking.count.mockResolvedValue(0);
+    prismaMock.booking.update.mockResolvedValue({});
+
+    const result = await assignSingleDriver('booking-1');
+
+    expect(result).toBeNull();
+    expect(prismaMock.message.create).not.toHaveBeenCalled();
+  });
+
+  it('n’envoie pas deux fois le même message automatique', async () => {
+    prismaMock.booking.findUnique.mockResolvedValue({ id: 'booking-1', status: BookingStatus.SEARCHING, scheduledFor: null, client: {} });
+    prismaMock.user.findFirst.mockResolvedValue({ id: 'driver-1', pushToken: null, phone: '+33600000000' });
+    prismaMock.unavailability.count.mockResolvedValue(1);
+    prismaMock.message.findFirst.mockResolvedValue({ id: 'msg-1' }); // déjà envoyé
+    prismaMock.booking.update.mockResolvedValue({});
+
+    await assignSingleDriver('booking-1');
+
+    expect(prismaMock.message.create).not.toHaveBeenCalled();
   });
 });
 

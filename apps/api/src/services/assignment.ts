@@ -12,6 +12,7 @@ const ACTIVE_MISSION_STATUSES: BookingStatus[] = [
   BookingStatus.IN_TRANSIT,
 ];
 const STALE_MISSION_MINUTES = 5;
+const CONFLICT_MESSAGE = 'On n’arrive pas à se prévoir un rdv, là je suis en mission, vers quelle heure ça vous arrangerait ?';
 
 /** Le dépanneur a-t-il déclaré une indisponibilité (mission hors app) au moment visé ? */
 async function hasUnavailabilityConflict(driverId: string, at: Date): Promise<boolean> {
@@ -24,6 +25,27 @@ async function hasUnavailabilityConflict(driverId: string, at: Date): Promise<bo
     where: { driverId, type: 'RECURRING', weekday: at.getDay(), startTime: { lte: hhmm }, endTime: { gte: hhmm } },
   });
   return recurring > 0;
+}
+
+/**
+ * Un seul dépanneur existe : s'il est déjà engagé sur une autre mission programmée/en cours ou sur
+ * une indisponibilité déclarée au moment visé, on prévient le client dans le chat de sa demande,
+ * avec un message affiché comme venant du dépanneur (voir spec § 2.2). Un simple "hors ligne" sans
+ * engagement concurrent n'est pas un conflit et ne déclenche pas ce message. Envoyé une seule fois
+ * par demande (le planificateur rappelle cette fonction toutes les 30s tant que ça n'est pas résolu).
+ */
+async function notifyConflictIfApplicable(bookingId: string, targetTime: Date) {
+  const driver = await prisma.user.findFirst({ where: { role: UserRole.DRIVER } });
+  if (!driver) return;
+  const hasCommitment = await prisma.booking.count({
+    where: { driverId: driver.id, id: { not: bookingId }, status: { in: [...ACTIVE_MISSION_STATUSES, BookingStatus.SCHEDULED] } },
+  });
+  const hasUnavailability = await hasUnavailabilityConflict(driver.id, targetTime);
+  if (!hasCommitment && !hasUnavailability) return;
+  const alreadySent = await prisma.message.findFirst({ where: { bookingId, senderId: driver.id, body: CONFLICT_MESSAGE } });
+  if (alreadySent) return;
+  await prisma.message.create({ data: { bookingId, senderId: driver.id, body: CONFLICT_MESSAGE } });
+  logger.info({ bookingId, driverId: driver.id }, 'Message automatique de conflit envoyé au client');
 }
 
 export async function assignSingleDriver(bookingId: string) {
@@ -42,6 +64,7 @@ export async function assignSingleDriver(bookingId: string) {
       where: { id: booking.id },
       data: { status: BookingStatus.SEARCHING, retryAfter: new Date(Date.now() + pricing.retryMinutes * 60_000) },
     });
+    await notifyConflictIfApplicable(booking.id, targetTime);
     return null;
   }
   const updated = await prisma.booking.update({ where: { id: booking.id }, data: { driverId: driver.id, status: BookingStatus.ASSIGNED, retryAfter: null } });
