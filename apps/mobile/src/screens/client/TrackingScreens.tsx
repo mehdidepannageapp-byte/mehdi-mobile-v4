@@ -19,11 +19,24 @@ type Props<T extends keyof RootStackParamList> = NativeStackScreenProps<RootStac
 
 export function SearchingScreen({ navigation, route }: Props<'Searching'>) {
   const { setActive } = useBooking(); const [seconds, setSeconds] = useState(0); const [booking, setBooking] = useState<Booking | null>(null);
-  useEffect(() => { const poll = async () => { const current = await api.booking(route.params.bookingId); setBooking(current); setActive(current); if (!['SEARCHING', 'PAYMENT_PENDING'].includes(current.status)) navigation.replace('ClientTracking', { bookingId: current.id }); }; void poll(); const timer = setInterval(() => { setSeconds((s) => s + 5); void poll(); }, 5000); return () => clearInterval(timer); }, [route.params.bookingId]);
+  useEffect(() => { const poll = async () => { const current = await api.booking(route.params.bookingId); setBooking(current); setActive(current); if (current.status === 'PROPOSED') navigation.replace('Proposal', { bookingId: current.id }); else if (!['SEARCHING', 'PAYMENT_PENDING'].includes(current.status)) navigation.replace('ClientTracking', { bookingId: current.id }); }; void poll(); const timer = setInterval(() => { setSeconds((s) => s + 5); void poll(); }, 5000); return () => clearInterval(timer); }, [route.params.bookingId]);
   async function schedule() { await api.cancel(route.params.bookingId, 'Reprogrammation demandée'); navigation.replace('Schedule'); }
   return <AppScreen scroll={false}><Header title="Recherche en cours" subtitle={booking?.reference} onBack={() => navigation.navigate('ClientHome')} /><View style={styles.searchArea}><View style={styles.radar}><View style={styles.radar2}><View style={styles.radar3}><Ionicons name="bicycle" size={35} color={colors.yellow} /></View></View></View><Text style={styles.title}>Nous contactons le dépanneur</Text><Text style={styles.center}>La demande est relancée automatiquement toutes les 2 minutes jusqu’à ce qu’il soit disponible.</Text><Pill label={`${Math.floor(seconds / 60)} min ${seconds % 60} s`} tone="yellow" /></View>
     <Card><View style={styles.row}><Ionicons name="checkmark-circle" color={colors.green} size={20} /><Text style={styles.itemText}>Demande et paiement validés</Text></View><View style={styles.row}><Ionicons name="sync" color={colors.yellow} size={20} /><Text style={styles.itemText}>Relance automatique active</Text></View><View style={styles.row}><Ionicons name="notifications" color={colors.muted} size={20} /><Text style={styles.itemText}>Vous serez averti immédiatement</Text></View></Card>
     <SecondaryButton title="Programmer pour plus tard" icon="calendar" onPress={schedule} /><SecondaryButton title="Annuler la demande" danger onPress={() => api.cancel(route.params.bookingId).then(() => navigation.replace('ClientHome'))} />
+  </AppScreen>;
+}
+
+export function ProposalScreen({ navigation, route }: Props<'Proposal'>) {
+  const { setActive } = useBooking(); const [booking, setBooking] = useState<Booking | null>(null); const [loading, setLoading] = useState(false);
+  useEffect(() => { const poll = async () => { const current = await api.booking(route.params.bookingId); setBooking(current); setActive(current); if (current.status === 'CANCELLED') navigation.replace('ClientHome'); else if (current.status !== 'PROPOSED') navigation.replace('ClientTracking', { bookingId: current.id }); }; void poll(); const timer = setInterval(poll, 5000); return () => clearInterval(timer); }, [route.params.bookingId]);
+  async function accept() { try { setLoading(true); await api.acceptProposal(route.params.bookingId); navigation.replace('ClientHome'); } finally { setLoading(false); } }
+  async function decline() { try { setLoading(true); await api.cancel(route.params.bookingId, 'Créneau proposé refusé'); navigation.replace('ClientHome'); } finally { setLoading(false); } }
+  if (!booking) return <AppScreen><Text style={ui.muted}>Chargement…</Text></AppScreen>;
+  const proposedDate = booking.proposedFor ? new Date(booking.proposedFor).toLocaleString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) : '';
+  return <AppScreen scroll={false} style={{ justifyContent: 'space-between' }}><Header title="Nouveau créneau proposé" subtitle={booking.reference} onBack={() => navigation.navigate('ClientHome')} />
+    <View style={styles.searchArea}><Ionicons name="calendar" size={62} color={colors.yellow} /><Text style={styles.title}>Le dépanneur n’est pas disponible immédiatement</Text><Text style={styles.center}>Il propose de venir à :</Text><Card style={{ alignItems: 'center' }}><Text style={ui.optionTitle}>{proposedDate}</Text></Card></View>
+    <View style={{ gap: 10 }}><PrimaryButton title="Accepter ce rendez-vous" tone="green" onPress={accept} loading={loading} /><SecondaryButton title="Refuser et annuler la demande" danger onPress={decline} /></View>
   </AppScreen>;
 }
 

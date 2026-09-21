@@ -28,6 +28,9 @@ export function DriverHomeScreen({ navigation }: Props<'DriverHome'>) {
 }
 
 function ActiveMission({ booking, navigation }: { booking: Booking; navigation: { navigate: (...args: any[]) => void } }) {
+  if (booking.status === 'PROPOSED') {
+    return <Card style={{ borderColor: colors.yellow }}><View style={styles.between}><Pill label={labelStatus(booking.status)} tone="yellow" /><Money cents={booking.estimatedPriceCents} size={19} /></View><Text style={ui.optionTitle}>{issueLabel(booking.issueType)}</Text><Text style={ui.muted}>{booking.pickupAddress}</Text><Text style={ui.muted}>En attente de la réponse du client au créneau proposé.</Text></Card>;
+  }
   const next = booking.status === 'ASSIGNED' ? 'MissionOffer' : booking.status === 'DRIVER_EN_ROUTE' ? 'DriverNavigation' : booking.status === 'DRIVER_ARRIVED' ? 'DriverArrival' : booking.status === 'PICKED_UP' || booking.status === 'IN_TRANSIT' ? 'Transport' : 'Delivery';
   const go = () => navigation.navigate(next, { bookingId: booking.id });
   return <Card style={{ borderColor: booking.status === 'ASSIGNED' ? colors.yellow : colors.green }}><View style={styles.between}><Pill label={labelStatus(booking.status)} tone={booking.status === 'ASSIGNED' ? 'yellow' : 'green'} /><Money cents={booking.estimatedPriceCents} size={19} /></View><Text style={ui.optionTitle}>{issueLabel(booking.issueType)}</Text><Text style={ui.muted}>{booking.pickupAddress}</Text><PrimaryButton title={booking.status === 'ASSIGNED' ? 'Voir la nouvelle mission' : 'Continuer la mission'} onPress={go} tone={booking.status === 'ASSIGNED' ? 'yellow' : 'green'} /></Card>;

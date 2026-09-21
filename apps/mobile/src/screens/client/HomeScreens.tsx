@@ -10,7 +10,10 @@ import { colors, radius, spacing } from '../../theme';
 import type { Booking, RootStackParamList } from '../../types';
 
 type Props<T extends keyof RootStackParamList> = NativeStackScreenProps<RootStackParamList, T>;
-const activeStatuses = ['SEARCHING', 'SCHEDULED', 'ASSIGNED', 'DRIVER_EN_ROUTE', 'DRIVER_ARRIVED', 'PICKED_UP', 'IN_TRANSIT', 'DELIVERED'];
+const activeStatuses = ['SEARCHING', 'PROPOSED', 'SCHEDULED', 'ASSIGNED', 'DRIVER_EN_ROUTE', 'DRIVER_ARRIVED', 'PICKED_UP', 'IN_TRANSIT', 'DELIVERED'];
+// La proposition de créneau (après un refus) a son propre écran de décision, la recherche a le sien,
+// tout le reste se suit sur l'écran de suivi classique.
+function activeRoute(status: string): 'Searching' | 'Proposal' | 'ClientTracking' { return status === 'SEARCHING' ? 'Searching' : status === 'PROPOSED' ? 'Proposal' : 'ClientTracking'; }
 
 export function ClientHomeScreen({ navigation }: Props<'ClientHome'>) {
   const { user } = useAuth(); const [active, setActive] = useState<Booking | null>(null); const [refreshing, setRefreshing] = useState(false);
@@ -18,7 +21,7 @@ export function ClientHomeScreen({ navigation }: Props<'ClientHome'>) {
   useEffect(() => { void load(); }, [load]);
   return <AppScreen><View style={styles.top}><Brand compact /><View style={styles.avatar}><Text style={styles.avatarText}>{user?.firstName?.[0] ?? 'C'}</Text></View></View>
     <View><Text style={styles.greeting}>Bonjour {user?.firstName ?? ''}</Text><Text style={ui.muted}>Besoin d’aide pour votre moto ?</Text></View>
-    {active ? <Card onPress={() => navigation.navigate(active.status === 'SEARCHING' ? 'Searching' : 'ClientTracking', { bookingId: active.id })} style={styles.activeCard}><View style={styles.row}><Pill label={labelStatus(active.status)} tone="yellow" /><Ionicons name="chevron-forward" size={22} color={colors.text} /></View><Text style={ui.optionTitle}>{active.pickupAddress}</Text><Text style={ui.muted}>{active.reference}</Text></Card> : null}
+    {active ? <Card onPress={() => navigation.navigate(activeRoute(active.status), { bookingId: active.id })} style={styles.activeCard}><View style={styles.row}><Pill label={labelStatus(active.status)} tone="yellow" /><Ionicons name="chevron-forward" size={22} color={colors.text} /></View><Text style={ui.optionTitle}>{active.pickupAddress}</Text><Text style={ui.muted}>{active.reference}</Text></Card> : null}
     <Pressable style={styles.sos} onPress={() => navigation.navigate('LocationPermission')}><View style={styles.sosInner}><Text style={styles.sosTop}>SOS</Text><Text style={styles.sosMain}>DÉPANNAGE</Text><Text style={styles.sosSmall}>APPUYEZ ICI</Text></View></Pressable>
     <Text style={styles.help}>Une demande guidée en quelques étapes</Text>
     <View style={styles.quick}><Card style={styles.quickCard}><Ionicons name="shield-checkmark" color={colors.green} size={25} /><Text style={styles.quickText}>Paiement sécurisé</Text></Card><Card style={styles.quickCard}><Ionicons name="location" color={colors.yellow} size={25} /><Text style={styles.quickText}>Toute l’Île-de-France</Text></Card></View>
@@ -30,7 +33,7 @@ export function ClientHistoryScreen({ navigation }: Props<'ClientHistory'>) {
   const [items, setItems] = useState<Booking[]>([]); const [loading, setLoading] = useState(true);
   useEffect(() => { api.bookings().then(setItems).finally(() => setLoading(false)); }, []);
   return <AppScreen><Header title="Mes interventions" subtitle={`${items.length} demande${items.length > 1 ? 's' : ''}`} />
-    {items.length === 0 && !loading ? <Empty icon="receipt-outline" title="Aucune intervention" text="Vos demandes et vos factures apparaîtront ici." /> : items.map((item) => <Card key={item.id} onPress={() => item.status === 'COMPLETED' ? navigation.navigate('Invoice', { bookingId: item.id }) : navigation.navigate('ClientTracking', { bookingId: item.id })}><View style={styles.row}><Pill label={labelStatus(item.status)} tone={item.status === 'COMPLETED' ? 'green' : item.status === 'CANCELLED' ? 'red' : 'yellow'} /><Text style={ui.muted}>{new Date(item.createdAt).toLocaleDateString('fr-FR')}</Text></View><Text style={ui.optionTitle}>{issueLabel(item.issueType)}</Text><Text style={ui.muted}>{item.pickupAddress} → {item.destinationAddress}</Text><Money cents={item.finalPriceCents ?? item.estimatedPriceCents} size={19} /></Card>)}
+    {items.length === 0 && !loading ? <Empty icon="receipt-outline" title="Aucune intervention" text="Vos demandes et vos factures apparaîtront ici." /> : items.map((item) => <Card key={item.id} onPress={() => item.status === 'COMPLETED' ? navigation.navigate('Invoice', { bookingId: item.id }) : navigation.navigate(activeRoute(item.status), { bookingId: item.id })}><View style={styles.row}><Pill label={labelStatus(item.status)} tone={item.status === 'COMPLETED' ? 'green' : item.status === 'CANCELLED' ? 'red' : 'yellow'} /><Text style={ui.muted}>{new Date(item.createdAt).toLocaleDateString('fr-FR')}</Text></View><Text style={ui.optionTitle}>{issueLabel(item.issueType)}</Text><Text style={ui.muted}>{item.pickupAddress} → {item.destinationAddress}</Text><Money cents={item.finalPriceCents ?? item.estimatedPriceCents} size={19} /></Card>)}
     <BottomMenu navigation={navigation} role="client" active="history" />
   </AppScreen>;
 }
@@ -47,7 +50,7 @@ export function ClientProfileScreen({ navigation }: Props<'ClientProfile'>) {
   </AppScreen>;
 }
 
-export function labelStatus(status: string) { return ({ SEARCHING: 'Recherche en cours', SCHEDULED: 'Programmé', ASSIGNED: 'Dépanneur trouvé', DRIVER_EN_ROUTE: 'En route', DRIVER_ARRIVED: 'Sur place', PICKED_UP: 'Prise en charge', IN_TRANSIT: 'Transport', DELIVERED: 'Livrée', COMPLETED: 'Terminée', CANCELLED: 'Annulée', PAYMENT_PENDING: 'Paiement' } as Record<string, string>)[status] ?? status; }
+export function labelStatus(status: string) { return ({ SEARCHING: 'Recherche en cours', PROPOSED: 'Créneau proposé', SCHEDULED: 'Programmé', ASSIGNED: 'Dépanneur trouvé', DRIVER_EN_ROUTE: 'En route', DRIVER_ARRIVED: 'Sur place', PICKED_UP: 'Prise en charge', IN_TRANSIT: 'Transport', DELIVERED: 'Livrée', COMPLETED: 'Terminée', CANCELLED: 'Annulée', PAYMENT_PENDING: 'Paiement' } as Record<string, string>)[status] ?? status; }
 export function issueLabel(issue: string) { return ({ ENGINE: 'Panne moteur', FLAT_TIRE: 'Crevaison', BATTERY: 'Batterie', ACCIDENT: 'Accident / chute', CHAIN: 'Problème de chaîne', OTHER: 'Autre problème' } as Record<string, string>)[issue] ?? issue; }
 
 const styles = StyleSheet.create({

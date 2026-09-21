@@ -239,6 +239,35 @@ describe('POST /bookings/:id/refuse', () => {
   });
 });
 
+describe('POST /bookings/:id/proposal/accept', () => {
+  it('refuse si la course n’est pas au statut PROPOSED', async () => {
+    prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-1', clientId: 'client-1', status: BookingStatus.ASSIGNED, proposedFor: null });
+    const res = await request(app).post('/bookings/booking-1/proposal/accept').set('Authorization', `Bearer ${clientToken}`).send({});
+    expect(res.status).toBe(409);
+    expect(prismaMock.booking.update).not.toHaveBeenCalled();
+  });
+
+  it('refuse si le client n’est pas propriétaire de la réservation', async () => {
+    prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-1', clientId: 'autre-client', status: BookingStatus.PROPOSED, proposedFor: new Date() });
+    const res = await request(app).post('/bookings/booking-1/proposal/accept').set('Authorization', `Bearer ${clientToken}`).send({});
+    expect(res.status).toBe(409);
+  });
+
+  it('accepte la proposition et fixe le rendez-vous (SCHEDULED)', async () => {
+    const proposedFor = new Date('2026-09-22T14:00:00.000Z');
+    prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-1', clientId: 'client-1', status: BookingStatus.PROPOSED, proposedFor });
+    prismaMock.booking.update.mockResolvedValue({ id: 'booking-1', status: BookingStatus.SCHEDULED, scheduledFor: proposedFor });
+
+    const res = await request(app).post('/bookings/booking-1/proposal/accept').set('Authorization', `Bearer ${clientToken}`).send({});
+
+    expect(res.status).toBe(200);
+    expect(prismaMock.booking.update).toHaveBeenCalledWith({
+      where: { id: 'booking-1' },
+      data: { status: BookingStatus.SCHEDULED, scheduledFor: proposedFor, proposedFor: null },
+    });
+  });
+});
+
 describe('POST /bookings/:id/cancel', () => {
   it('refuse d\'annuler une course déjà terminée', async () => {
     prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-1', status: BookingStatus.COMPLETED });
@@ -254,6 +283,19 @@ describe('POST /bookings/:id/cancel', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.status).toBe(BookingStatus.CANCELLED);
+  });
+
+  it('refuser une proposition de créneau annule la course sans relancer de recherche', async () => {
+    prismaMock.booking.findFirst.mockResolvedValue({ id: 'booking-1', status: BookingStatus.PROPOSED, stripePaymentIntentId: 'pi_demo_booking-1' });
+    prismaMock.booking.update.mockResolvedValue({ id: 'booking-1', status: BookingStatus.CANCELLED });
+
+    const res = await request(app).post('/bookings/booking-1/cancel').set('Authorization', `Bearer ${clientToken}`).send({ reason: 'Créneau proposé refusé' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe(BookingStatus.CANCELLED);
+    expect(prismaMock.booking.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: BookingStatus.CANCELLED }),
+    }));
   });
 });
 

@@ -6,7 +6,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Alert, Image, Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 import { io, type Socket } from 'socket.io-client';
-import { AppScreen, Card, Header, Money, Pill, PrimaryButton, SecondaryButton, SectionTitle, ToggleRow, ui } from '../../components/ui';
+import { AppScreen, Card, Header, Money, OptionCard, Pill, PrimaryButton, SecondaryButton, SectionTitle, ToggleRow, ui } from '../../components/ui';
 import { API_URL } from '../../config';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
@@ -20,9 +20,29 @@ export function MissionOfferScreen({ navigation, route }: Props<'MissionOffer'>)
   const [booking, setBooking] = useState<Booking | null>(null); const [loading, setLoading] = useState(false);
   useEffect(() => { api.booking(route.params.bookingId).then(setBooking); }, []);
   async function accept() { try { setLoading(true); await api.updateStatus(route.params.bookingId, 'DRIVER_EN_ROUTE'); navigation.replace('DriverNavigation', { bookingId: route.params.bookingId }); } finally { setLoading(false); } }
-  async function refuse() { await api.refuse(route.params.bookingId); navigation.replace('DriverHome'); }
   if (!booking) return <AppScreen><Text style={ui.muted}>Chargement de la mission…</Text></AppScreen>;
-  return <AppScreen><Header title="Nouvelle mission" subtitle="Répondez rapidement" onBack={() => navigation.goBack()} /><View style={styles.bell}><Ionicons name="notifications" size={44} color={colors.bg} /></View><Card style={{ borderColor: colors.yellow }}><View style={styles.between}><Pill label="NOUVELLE DEMANDE" tone="yellow" /><Money cents={booking.estimatedPriceCents} size={22} /></View><Text style={styles.title}>{issueLabel(booking.issueType)}</Text><Info icon="location" text={booking.pickupAddress} /><Info icon="navigate" text={`${booking.distanceKm.toFixed(1)} km de transport`} /><Info icon="person" text={booking.client?.firstName ?? 'Client'} /><Info icon="bicycle" text={booking.vehicle ? `${booking.vehicle.brand} ${booking.vehicle.model}` : 'Moto'} /></Card><PrimaryButton title="Accepter la mission" tone="green" onPress={accept} loading={loading} /><PrimaryButton title="Refuser" tone="red" onPress={refuse} /></AppScreen>;
+  return <AppScreen><Header title="Nouvelle mission" subtitle="Répondez rapidement" onBack={() => navigation.goBack()} /><View style={styles.bell}><Ionicons name="notifications" size={44} color={colors.bg} /></View><Card style={{ borderColor: colors.yellow }}><View style={styles.between}><Pill label="NOUVELLE DEMANDE" tone="yellow" /><Money cents={booking.estimatedPriceCents} size={22} /></View><Text style={styles.title}>{issueLabel(booking.issueType)}</Text><Info icon="location" text={booking.pickupAddress} /><Info icon="navigate" text={`${booking.distanceKm.toFixed(1)} km de transport`} /><Info icon="person" text={booking.client?.firstName ?? 'Client'} /><Info icon="bicycle" text={booking.vehicle ? `${booking.vehicle.brand} ${booking.vehicle.model}` : 'Moto'} /></Card><PrimaryButton title="Accepter la mission" tone="green" onPress={accept} loading={loading} /><PrimaryButton title="Refuser" tone="red" onPress={() => navigation.navigate('RefusalDelay', { bookingId: route.params.bookingId })} /></AppScreen>;
+}
+
+const refusalDelays: Array<{ minutes: 30 | 60 | 90; title: string; subtitle: string }> = [
+  { minutes: 30, title: 'Dans 30 minutes', subtitle: 'Proposer un rendez-vous très prochain' },
+  { minutes: 60, title: 'Dans 1 heure', subtitle: 'Proposer un rendez-vous dans l’heure' },
+  { minutes: 90, title: 'Dans 1h30', subtitle: 'Proposer un rendez-vous un peu plus tard' },
+];
+
+export function RefusalDelayScreen({ navigation, route }: Props<'RefusalDelay'>) {
+  const [selected, setSelected] = useState<30 | 60 | 90 | null>(null);
+  const [loading, setLoading] = useState(false);
+  async function confirm() {
+    if (!selected) return;
+    try { setLoading(true); await api.refuse(route.params.bookingId, selected); navigation.replace('DriverHome'); }
+    finally { setLoading(false); }
+  }
+  return <AppScreen><Header title="Proposer un créneau" subtitle="Dans combien de temps pouvez-vous intervenir ?" onBack={() => navigation.goBack()} />
+    {refusalDelays.map((delay) => <OptionCard key={delay.minutes} icon="time" title={delay.title} subtitle={delay.subtitle} selected={selected === delay.minutes} onPress={() => setSelected(delay.minutes)} />)}
+    <Text style={ui.muted}>Le client verra l’heure précise et devra confirmer ce rendez-vous.</Text>
+    <PrimaryButton title="Envoyer la proposition" tone="red" onPress={confirm} loading={loading} disabled={!selected} />
+  </AppScreen>;
 }
 
 export function DriverNavigationScreen({ navigation, route }: Props<'DriverNavigation'>) {

@@ -31,3 +31,6 @@ mehdi mobile v4.zip
 # Sorties de build et caches divers
 *.tsbuildinfo
 .turbo
+
+# Graphe de connaissance généré par graphify (artefact local, pas du code)
+graphify-out/

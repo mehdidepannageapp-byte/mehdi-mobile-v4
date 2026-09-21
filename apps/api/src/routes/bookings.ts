@@ -177,6 +177,20 @@ bookingsRouter.post('/:id/refuse', asyncHandler(async (req, res) => {
   res.json(updated);
 }));
 
+// Le client accepte le créneau proposé : la réservation devient un rendez-vous ferme.
+// Un refus du créneau se fait via POST /:id/cancel (aucune nouvelle recherche automatique).
+bookingsRouter.post('/:id/proposal/accept', asyncHandler(async (req, res) => {
+  const booking = await authorizedBooking(String(req.params.id), req.auth!.userId);
+  if (!booking || booking.clientId !== req.auth!.userId || booking.status !== BookingStatus.PROPOSED || !booking.proposedFor) {
+    return res.status(409).json({ error: 'Aucune proposition à accepter' });
+  }
+  const updated = await prisma.booking.update({
+    where: { id: booking.id },
+    data: { status: BookingStatus.SCHEDULED, scheduledFor: booking.proposedFor, proposedFor: null },
+  });
+  res.json(updated);
+}));
+
 bookingsRouter.post('/:id/cancel', asyncHandler(async (req, res) => {
   const { reason } = z.object({ reason: z.string().max(250).optional() }).parse(req.body);
   const booking = await authorizedBooking(String(req.params.id), req.auth!.userId);
